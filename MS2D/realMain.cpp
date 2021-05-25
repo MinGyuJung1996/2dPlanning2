@@ -205,8 +205,8 @@ int main(int argc, char *argv[]) {
 	//cout << "fake func" << endl;
 
 	//sceneEditor::main(argc, argv);	// interactive editing
-	//rendering3D::main3::main3(argc, argv);	// draw 3d c-space
-	graphSearch::main2(argc, argv);		// draw moving robot
+	rendering3D::main3::main3(argc, argv);	// draw 3d c-space
+	//graphSearch::main2(argc, argv);		// draw moving robot
 	//graphSearch::main(0, NULL);
 	//ms::main2(argc, argv); //RSV
 

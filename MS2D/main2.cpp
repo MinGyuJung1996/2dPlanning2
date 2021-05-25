@@ -96,6 +96,8 @@ namespace rendering3D
 		double phimax	;
 		double phimin	;
 
+		double modelMat[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+
 	public:
 
 		/* 3d math funcs */
@@ -311,6 +313,8 @@ namespace rendering3D
 			glMatrixMode(GL_MODELVIEW);
 			glLoadIdentity();
 			glLoadMatrixd(matrix);
+			glMultMatrixd(modelMat);
+
 		}
 	};
 
@@ -1124,10 +1128,13 @@ namespace rendering3D
 		int main3(int argc, char* argv[])
 		{
 			const int
-				_10_bifur = false,
-				_11_bifur_pair = false,
-				_12_vor2d = false,
-				_13_vor3d = false;
+				_10_bifur		= false,
+				_11_bifur_pair	= false,
+				_12_vor2d		= false,
+				_13_vor3d		= false;
+
+			const int
+				_hard_case = true;
 
 			// 1. basic stuff
 			wd = 1600;
@@ -1179,14 +1186,40 @@ namespace rendering3D
 
 				appendArcModel(obs, obsC, arcObjectSq, circObjectSq, 1, 0.5, Point(-1.2, -1.3));
 				//appendArcModel(obs, obsC, arcObjectSq, circObjectSq, 1, 0.5, Point(+1.2, -1.5));
-				//appendArcModel(obs, obsC, arcObjectTri, circObjectTri, 1, -0.3, Point(+1.1, -1.5));
-				appendArcModel(obs, obsC, arcASC45, circASC45, 1, -0.3, Point(+1.1, -1.5));
+				appendArcModel(obs, obsC, arcObjectTri, circObjectTri, 1, -0.3, Point(+1.1, -1.5));
+				//appendArcModel(obs, obsC, arcASC45, circASC45, 1, -0.3, Point(+1.1, -1.5));
 
-				//change robot to tri
+				////change robot to tri
 				robot.clear();
 				robotC.clear();
-				appendArcModel(robot, robotC, arcObject8, circObject8, 1, 0, Point(0.1, 0.1));
+				//appendArcModel(robot, robotC, arcObject8, circObject8, 1, 0, Point(0.1, 0.1));
+				appendArcModel(robot, robotC, arcObjectSq, circObjectSq, 0.5, 0, Point(0.2, 0.2));
 				std::cout << "r.size " << robot.size() << std::endl;
+			}
+
+			if (_hard_case)
+			{
+				initializeRobotObstacles(1, 0);
+				int rIdx = 1;
+				int oIdx = 7;
+				robot = ms::Model_vca[rIdx];
+				robotC = ms::InteriorDisks_Imported[rIdx];
+				obs = ms::Model_vca[oIdx];
+				obsC = ms::InteriorDisks_Imported[oIdx];
+
+				double z = 0.1;
+				glMatrixMode(GL_MODELVIEW);
+				//double mat[16] =
+				//{ 1,0,0,0,
+				//  0,1,0,0,
+				//  0,0,z,0,
+				//  0,0,0,1};
+				//glLoadIdentity();
+				//glLoadMatrixd(mat);
+				//glPushMatrix();
+
+				cam.modelMat[10] = z;
+
 			}
 
 			// 3. use calc
@@ -1597,8 +1630,13 @@ namespace rendering3D
 			vector<xyt>& norm = out_norm;
 
 			// 2. sample ns-times from vCurves and form tri-strip
-			double sz0 = v0.size();
+			double sz0 = v0.size(); 
 			double sz1 = v1.size();
+			//dbg
+			//{
+			//	if (sz0 == 0 || sz1 == 0)
+			//		return;
+			//}
 			double rcp = 1.0 / ns; // reciprocal of ns;
 			for (int i = 0; i < ns; i++)
 			{
