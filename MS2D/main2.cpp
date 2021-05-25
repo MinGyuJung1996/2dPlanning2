@@ -880,7 +880,7 @@ namespace rendering3D
 			// 3. VIEWPORT 1
 			glViewport(wd/2, 0, wd/2, ht);
 			glScissor(wd / 2, 0, wd / 2, ht);
-			glClearColor(0.5, 1.0, 1.0, 1.0);
+			glClearColor(0.8, 1.0, 1.0, 1.0);
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 			
 			glLineWidth(2.5);
@@ -888,9 +888,9 @@ namespace rendering3D
 			glMatrixMode(GL_PROJECTION);
 			glLoadIdentity();
 			glMatrixMode(GL_MODELVIEW);
-			static int viewLength = 4.5;
+			static double viewLength = 4.5, tx = 0, ty = 0;
 			glLoadIdentity(); 
-			gluOrtho2D(-viewLength, viewLength, -viewLength, viewLength);
+			gluOrtho2D(tx -viewLength, tx + viewLength, ty - viewLength, ty + viewLength);
 
 			//glClearColor(1.0, 1.0, 1.0, 1.0);
 			//glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -903,6 +903,7 @@ namespace rendering3D
 
 			// 3-3. draw mink
 			//dbg
+			glColor3f(0, 0, 0);
 			int cnt = 0;
 			for (auto& loop : ms::Model_Result)
 				for (auto& as : loop)
@@ -923,7 +924,7 @@ namespace rendering3D
 			//dbg_out
 			cout << "input arcs.size() : " << vrin.arcs.size() << endl;
 			
-			const int vorOption = 0;
+			const int vorOption = 99;
 
 			// i. orig
 			if (vorOption == 0)
@@ -931,6 +932,8 @@ namespace rendering3D
 			// ii. calcg()
 			if (vorOption == 1)
 			{
+				bool colorfulVoronoi = false;
+
 				//voronoiCalculator vc;
 				vc.initialize();
 				vc.setInput(vrin.arcs, vrin.left, vrin.color);
@@ -943,7 +946,11 @@ namespace rendering3D
 				glBegin(GL_LINES);
 				for (size_t i = 0; i < vcg.E().size(); i++)
 				{
-					glColor3fv(colors + 3 * i);
+					if (colorfulVoronoi)
+						glColor3fv(colors + 3 * i);
+					else
+						glColor3f(0, 0, 1);
+
 					for (auto& ve : vcg.E()[i])
 					{
 						glVertex2dv(ve.v0.P);
@@ -952,7 +959,7 @@ namespace rendering3D
 				}
 				glEnd();
 
-				glPointSize(6.0);
+				glPointSize(2.5);
 				glBegin(GL_POINTS);
 				for(int i = 0; i <vcg.V().size(); i++)
 				{
@@ -1031,6 +1038,51 @@ namespace rendering3D
 				}
 			}
 
+			// iv. for paper figures
+			if (vorOption == 99)
+			{
+				bool colorfulVoronoi = false;
+
+				//voronoiCalculator vc;
+				auto backup = planning::_h_fmdsp_g1;
+				planning::_h_fmdsp_g1 = 1e-8;
+				vc.initialize();
+				vc.setInput(vrin.arcs, vrin.left, vrin.color);
+				//dbg_out
+				cout << "input arcs.size() : " << vrin.arcs.size() << endl;
+				voronoiCalculatorResultG vcg;
+				vc.setOutputG(vcg);
+				vc.calculateG();
+
+				glBegin(GL_LINES);
+				for (size_t i = 0; i < vcg.E().size(); i++)
+				{
+					if (colorfulVoronoi)
+						glColor3fv(colors + 3 * i);
+					else
+						glColor3f(0, 0, 1);
+
+					for (auto& ve : vcg.E()[i])
+					{
+						glVertex2dv(ve.v0.P);
+						glVertex2dv(ve.v1.P);
+					}
+				}
+				glEnd();
+
+				glPointSize(2.5);
+				glBegin(GL_POINTS);
+				for (int i = 0; i < vcg.V().size(); i++)
+				{
+					glVertex2dv(vcg.V()[i].P);
+				}
+				glEnd();
+				glPointSize(1.0);
+
+				planning::_h_fmdsp_g1 = backup;
+			}
+
+
 			// 6. TEST input
 			if (false)
 			{
@@ -1101,6 +1153,51 @@ namespace rendering3D
 				}
 			}
 
+			// 8. draw vornoi Boudnary
+			glColor3f(0, 0, 0);
+			if(!planning::keyboardflag['7'])
+			for (auto& arc : planning::voronoiBoundary)
+			{
+				arc.draw();
+			}
+
+			// 9. 2d input
+			{
+				char t;
+				t = '+';
+				if (planning::keyboardflag[t] != planning::keyboardflag_last[t])
+					viewLength *= 0.95;
+				t = '-';
+				if (planning::keyboardflag[t] != planning::keyboardflag_last[t])
+					viewLength /= 0.95;
+				t = '6';
+				if (planning::keyboardflag[t] != planning::keyboardflag_last[t])
+					tx += 0.03 * viewLength;
+				t = '4';
+				if (planning::keyboardflag[t] != planning::keyboardflag_last[t])
+					tx -= 0.03 * viewLength;
+				t = '8';
+				if (planning::keyboardflag[t] != planning::keyboardflag_last[t])
+					ty += 0.03 * viewLength;
+				t = '5';
+				if (planning::keyboardflag[t] != planning::keyboardflag_last[t])
+					ty -= 0.03 * viewLength;
+			}
+
+			// 10. originals when flagged
+			if (planning::keyboardflag['9'])
+			{
+				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);;
+				for (auto& a : ms::Model_vca[1])
+					a.draw2();
+
+				for (auto& a : ms::Model_vca[0])
+				{
+					cd::translateArc(a, Point(-1, 0)).draw2();
+				}
+
+			}
+
 			// 97. swap
 			glScissor(0, 0, wd, ht);
 			glutSwapBuffers();
@@ -1117,7 +1214,16 @@ namespace rendering3D
 			b :			draw 3d mink
 			n :			draw 3d vor
 			m :			draw 3d vor (current time, time + 1) only
-			
+			, :			bifur line
+			. :			
+
+			2d
+			= : zoom in
+			- ; zoom out
+			7 : draw boundary;
+			9 : draw input
+			8456 : move cam
+
 			*/
 
 			// 99. set keyboardFlagOld
@@ -1199,7 +1305,7 @@ namespace rendering3D
 
 			if (_hard_case)
 			{
-				initializeRobotObstacles(1, 0);
+				initializeRobotObstacles(0, 0);
 				int rIdx = 1;
 				int oIdx = 7;
 				robot = ms::Model_vca[rIdx];
@@ -1248,7 +1354,7 @@ namespace rendering3D
 			ms::Model_from_arc[0] = true;
 		
 			planning::_Convert_VectorCircularArc_To_MsInput(obs, ms::Models_Approx[1]);
-			//ms::Model_vca[1] = obs;
+			ms::Model_vca[1] = obs;
 			ms::InteriorDisks_Imported[1] = obsC;
 			ms::Model_from_arc[1] = true;
 
@@ -1259,6 +1365,7 @@ namespace rendering3D
 			// ms::minkowskisum(180, 1);
 
 			// 8. set voronoiBoundary
+			if(!_hard_case)
 			{
 
 				double l = 4.0;
