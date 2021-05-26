@@ -279,11 +279,13 @@ void initializeRobotObstacles(int RobotIdx, int ObstaclesIdx)
 		oriIdx = 0, // mink-sum-call idx of original robot
 		obsIdx = 7; // mink-sum-call idx of obstacles
 
+	double vbRad = 1.3;
+
 	// 0-1. Check Input
 	{
 		const int
-			nRobot = 2,
-			nObs = 2;
+			nRobot = 3,
+			nObs = 3;
 
 		if (RobotIdx < 0)
 			RobotIdx = 0;
@@ -364,6 +366,31 @@ void initializeRobotObstacles(int RobotIdx, int ObstaclesIdx)
 
 	}
 
+	if (RobotIdx == 2)
+	{
+		using namespace std;
+		vector<CircularArc> arcObjectSq;
+		vector<Circle>	   circObjectSq;
+		readArcModel("Objects/Square-shape-g1/arc.txt", "Objects/Square-shape-g1/circ.txt", arcObjectSq, circObjectSq);
+
+		vector<CircularArc> robot;
+		vector<Circle> robotC;
+
+		appendArcModel(robot, robotC, arcObjectSq, circObjectSq, 0.5, 0, Point(0.2, 0.2));
+
+		ms::Model_vca				[rsvIdx] = robot;
+		ms::InteriorDisks_Imported	[rsvIdx] = robotC;
+		ms::Model_from_arc			[rsvIdx] = true;
+		
+		ms::Model_vca				[oriIdx] = robot;
+		ms::InteriorDisks_Imported	[oriIdx] = robotC;
+		ms::Model_from_arc			[oriIdx] = true;
+
+		Models_Approx[rsvIdx].resize(0);
+		planning::_Convert_VectorCircularArc_To_MsInput(Model_vca[rsvIdx],
+			Models_Approx[rsvIdx]);
+	}
+
 	// 2. Obstacles
 	{
 		/*
@@ -432,6 +459,30 @@ void initializeRobotObstacles(int RobotIdx, int ObstaclesIdx)
 		Point uniformTranslation;
 		switch (ObstaclesIdx)
 		{
+		case 2:
+		{
+			sceneOriginal.push_back(CircularArc(Point(1, 1), 0.5, Point(1, 0), Point(0, 1)));
+			sceneOriginal.push_back(CircularArc(Point(1, 1), 0.5, Point(0, 1), Point(-1, 0)));
+			sceneOriginal.push_back(CircularArc(Point(1, 1), 0.5, Point(-1, 0), Point(0, -1)));
+			sceneOriginal.push_back(CircularArc(Point(1, 1), 0.5, Point(0, -1), Point(1, 0)));
+			sceneCircles.push_back(Circle(Point(1, 1), 0.35));
+			sceneCircles.push_back(Circle(Point(1, 1), 0.4));
+			sceneCircles.push_back(Circle(Point(1, 1), 0.3));
+
+			vector<CircularArc> arcObjectSq;
+			vector<Circle>	   circObjectSq;
+			readArcModel("Objects/Square-shape-g1/arc.txt", "Objects/Square-shape-g1/circ.txt", arcObjectSq, circObjectSq);
+
+			vector<CircularArc> arcObjectTri;
+			vector<Circle>     circObjectTri;
+			readArcModel("Objects/Hex-shape-g1/arc.txt", "Objects/Hex-shape-g1/circ.txt", arcObjectTri, circObjectTri);
+
+			appendArcModel(sceneOriginal, sceneCircles, arcObjectSq, circObjectSq, 1, 0.5, Point(-1.2, -1.3));
+			appendArcModel(sceneOriginal, sceneCircles, arcObjectTri, circObjectTri, 1, -0.3, Point(+1.1, -1.5));
+
+			vbRad = 3.0;
+			break;
+		}
 		case 1:
 			// Curved maze
 //L-shape3		0.8		0		0.7			-0.8
@@ -529,14 +580,14 @@ appendArcModel(sceneOriginal,sceneCircles, arcObjectA3, circObjectA3, 0.75	,0		 
 	// set voronoiBoundary;
 	// should be properly ordered(G0-continuous)
 	{
-		double r = 2;
+		double r = vbRad;
 		CircularArc a(Point(0, 0), r, Point(+1, +0), Point(+0, +1));
 		CircularArc b(Point(0, 0), r, Point(+0, +1), Point(-1, +0));
 		CircularArc c(Point(0, 0), r, Point(-1, +0), Point(+0, -1));
 		CircularArc d(Point(0, 0), r, Point(+0, -1), Point(+1, +0));
 
 		// test
-		double l = 1.3;
+		double l = vbRad;
 		double eps = 0.01;
 		Point
 			q1(+l, +l),

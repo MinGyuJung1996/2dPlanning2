@@ -227,8 +227,8 @@ namespace graphSearch
 	*/
 	int main2(int argc, char* argv[])
 	{
-		int robotType = 0;
-		int obsType = 0;
+		int robotType = 2;
+		int obsType   = 2;
 
 		// 1. build v_edges
 		planning::_h_fmdsp_g1 = 1e-8;
@@ -324,7 +324,12 @@ namespace graphSearch
 		std::vector<std::vector<v_edge>>&
 			v_edges = planning::output_to_file::v_edges;
 
-		//ms::renderMinkVoronoi(argc, argv, MRs, MIBs, v_edges, planning::voronoiBoundary);
+		if (0)
+		{
+			_h_fmdsp_g1 = 1e-3;
+			ms::renderMinkVoronoi(argc, argv, MRs, MIBs, v_edges, planning::voronoiBoundary);
+		}
+		auto gsInitStartTime = clock();
 
 		//Graph theGr = create_VorGraph(v_edges);
 		//std::vector<v_edge> path = invoke_AStar(theGr);
@@ -343,6 +348,25 @@ namespace graphSearch
 		// Set starting pt, ending pt
 		Vertex ptnSrc(-0.9, -0.1, 0.0);
 		Vertex ptnDst(+0.5, +0.4, 160.0);
+		if (obsType == 2)
+		{
+
+			// 4
+			ptnSrc = Vertex(-1.8, -1.5, 0.0);
+			ptnDst = Vertex(1.0, -1.1, 180.0);
+
+			// 3
+			//ptnSrc = Vertex(-1.8, -1.5, 0.0);
+			//ptnDst = Vertex(2.2, 1.3, 90.0);
+			
+			// 2
+			//ptnSrc = Vertex(-1.8, -1.5,  0.0);
+			//ptnDst = Vertex( 2.5, 2, 90.0); 
+			//
+			//// 1
+			//ptnSrc = Vertex(-1.8, -1.5, 0.0);
+			//ptnDst = Vertex(1.0, -1.1, 90.0);
+		}
 		if (/*robotType == 0 && */obsType == 1)
 		{
 			ptnSrc = Vertex(0.858, -1.07, 0.0);
@@ -384,6 +408,10 @@ namespace graphSearch
 		 // triplet of (path[3n+0], path[3n+1], path[3n+2]) represents a vertice in path. 
 		// vertices = ...
 
+		auto gsInitEndTime = clock();
+		cout << "graph search time : "
+			<< double(gsInitEndTime - gsInitStartTime) / 1000 << "s" << endl;
+
 		// 4~. do sth with the path....
 
 		// 4-1. Just to check whether mink/vor was constructed properly.
@@ -407,6 +435,19 @@ namespace graphSearch
 				renderedPath.push_back(v.x);
 				renderedPath.push_back(v.y);
 				renderedPath.push_back(v.z);
+			}
+		}
+		bool savePathAsFile = true;
+		if (savePathAsFile)
+		{
+			ofstream fout("path.txt");
+			fout << renderedPath.size() / 3 << endl;
+			for (int i = 0; i < renderedPath.size(); i += 3)
+			{
+				fout
+					<< renderedPath[i + 0] << " "
+					<< renderedPath[i + 1] << " "
+					<< renderedPath[i + 2] << endl;
 			}
 		}
 		ms::renderPath(argc, argv, renderedPath);

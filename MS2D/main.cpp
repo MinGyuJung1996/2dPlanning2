@@ -1282,13 +1282,14 @@ namespace ms {
 
 			// 1. draw mink
 			{
+				glColor3f(0, 0, 0);
 				size_t length = MR.size();
 				for (size_t i = 0; i < length; i++)
 				{
-					if (MIB[i])
-						glColor3f(0, 0, 0);
-					else
-						glColor3f(0, 0, 1);
+					//if (MIB[i])
+					//	glColor3f(0, 0, 0);
+					//else
+					//	glColor3f(0, 0, 1);
 
 					for (auto& as : MR[i])
 						as.draw();
@@ -1297,7 +1298,7 @@ namespace ms {
 
 			// 2. draw voronoi
 			{
-				glColor3f(1, 0, 1);
+				glColor3f(0, 0, 1);
 				glBegin(GL_LINES);
 				for (auto& ve : voronoi)
 				{
@@ -1489,6 +1490,46 @@ namespace ms {
 				glVertex2d(pathPtr[3 * i + 0], pathPtr[3 * i + 1]);
 			}
 			glEnd();
+
+			// 4.draw more robots;
+			glColor3f(0.8, 0.8, 0.8);
+			int nsample = pathSize / 50;
+			{
+				int d = pathSize / nsample;
+				for (int i = 0; i < nsample; i++)
+				{
+					int idx = d * i;
+
+					auto& robot = Models_Approx[robotIdx];
+					Point translation(pathPtr[3 * idx + 0], pathPtr[3 * idx + 1]);
+					double rotationDegree = pathPtr[3 * idx + 2];
+					for (auto& as : robot)
+						for (auto& arc : as.Arcs)
+						{
+							cd::translateArc(cd::rotateArc(arc, rotationDegree + 180.0), translation).draw();
+						}
+					glPointSize(4.0f);
+					glBegin(GL_POINTS);
+					glVertex3d(translation.P[0], translation.P[1], -0.5);
+					glEnd();
+				}
+
+				int idx = pathSize - 1;
+				{
+					auto& robot = Models_Approx[robotIdx];
+					Point translation(pathPtr[3 * idx + 0], pathPtr[3 * idx + 1]);
+					double rotationDegree = pathPtr[3 * idx + 2];
+					for (auto& as : robot)
+						for (auto& arc : as.Arcs)
+						{
+							cd::translateArc(cd::rotateArc(arc, rotationDegree + 180.0), translation).draw();
+						}
+					glPointSize(4.0f);
+					glBegin(GL_POINTS);
+					glVertex3d(translation.P[0], translation.P[1], -0.5);
+					glEnd();
+				}
+			}
 			
 			glutSwapBuffers();
 		};

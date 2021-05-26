@@ -1163,6 +1163,20 @@ namespace planning
 			//cout << i << "   " << returned[i].x[1].P[0] - returned[next].x[0].P[0] << " , " << returned[i].x[1].P[1] - returned[next].x[0].P[1] << endl;
 		
 		}
+
+		////4. check loop is formed
+		////dbg
+		//double loopformErr = 1e-4;
+		//if (returned.size() != 0)
+		//{
+		//	auto dv = returned.front().x0() - returned.back().x1();
+		//	if (dv.length2() > loopformErr)
+		//	{
+		//		cout << "!!! ERR : convertMsOutput_ClockWise : This does not form a loop " << endl;
+		//		returned.resize(0);
+		//	}
+		//}
+
 		//if (!err) cout << "No error in " << count++ << endl;
 
 		//
@@ -1592,7 +1606,6 @@ namespace planning
 		pair<CircularArc, CircularArc> ret;
 		ret.first  = c;
 		ret.second = c;
-
 		Point n;
 		if (flag_vmqa)
 		{
@@ -2514,6 +2527,7 @@ namespace planning
 		Date:
 		2021
 			0421: added code to handle continuous arcs with same r/center (can be turned off with use_simplifyVCA = false)
+			0526: added cpde to remove non-loop-forming ones.
 	*/
 	void _Convert_MsOut_To_VrIn(vector<deque<ArcSpline>>& INPUT msOut, vector<bool>& INPUT isBoundary, VR_IN& OUTPUT vrIn)
 	{
@@ -2574,6 +2588,16 @@ namespace planning
 					/*reverse(temp.begin(), temp.end());
 					for (auto& arc : temp)
 						arc = flipArc(arc);*/
+
+					//dbg : check if loop is formed
+					{
+						if (temp.size() == 0)
+							continue;
+						double err = 1e-6;
+						if ((temp.front().x0() - temp.back().x1()).length2() > err)
+							continue;
+					}
+
 
 					vrIn.arcs.insert(vrIn.arcs.end(), temp.begin(), temp.end());
 					vrIn.arcsPerLoop.push_back(temp.size());
@@ -5149,7 +5173,7 @@ void
 	if (true)
 	{
 		auto foot = findMaximalDiskSharingPoint(cycle, poc{ 0 , 0.5 }, 0, 0);
-
+		/*dbg*/ if (foot.c < 0) return;
 		auto first  = subdivCircularArc(cycle[0]	 , 0.5);	// subdiv curve[0] at t = 0.5
 		auto second = subdivCircularArc(cycle[foot.c], foot.t); // subdiv some other curve, where it shares a disk with curve[0] at t = 0.5
 
@@ -5646,7 +5670,7 @@ retTypeFBR
 	if (true)
 	{
 		auto foot = findMaximalDiskSharingPoint(cycle, poc{ 0 , 0.5 }, 0, 0);
-
+		/*dbg*/if (foot.c < 0) return{};
 		auto first  = subdivCircularArc(cycle[0]	 , 0.5);	// subdiv curve[0] at t = 0.5
 		auto second = subdivCircularArc(cycle[foot.c], foot.t); // subdiv some other curve, where it shares a disk with curve[0] at t = 0.5
 
@@ -5751,7 +5775,7 @@ std::vector<Point>
 	if (true)
 	{
 		auto foot = findMaximalDiskSharingPoint(cycle, poc{ 0 , 0.5 }, 0, 0);
-
+		/*dbg*/ if (foot.c < 0) return {};
 		auto first  = subdivCircularArc(cycle[0]	 , 0.5);	// subdiv curve[0] at t = 0.5
 		auto second = subdivCircularArc(cycle[foot.c], foot.t); // subdiv some other curve, where it shares a disk with curve[0] at t = 0.5
 
@@ -5946,6 +5970,13 @@ std::vector<VoronoiEdge> voronoiCalculatorResultG::findVoronoiCurvePair(VoronoiE
 
 		// 2-1-3. find need for flip;
 		auto vCurveIdx = cand[closestI];
+		//dbg
+		{
+			if (vCurveIdx < 0 || vCurveIdx >= E().size())
+				return {};
+			if (closestJ < 0 || closestJ >= E()[vCurveIdx].size())
+				return {};
+		}
 		auto& vClose = E()[vCurveIdx][closestJ];
 		auto tan2 = (vClose.v1 - vClose.v0);
 		auto dotP = tan * tan2;
@@ -6014,6 +6045,13 @@ std::vector<VoronoiEdge> voronoiCalculatorResultG::findVoronoiCurvePair(VoronoiE
 
 		// 2-1-3. find need for flip;
 		auto vCurveIdx = cand[closestI];
+		//dbg
+		{
+			if (vCurveIdx < 0 || vCurveIdx >= E().size())
+				return {};
+			if (closestJ < 0 || closestJ >= E()[vCurveIdx].size())
+				return {};
+		}
 		auto& vClose = E()[vCurveIdx][closestJ];
 		auto tan2 = (vClose.v1 - vClose.v0);
 		auto dotP = tan * tan2;

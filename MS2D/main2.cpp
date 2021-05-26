@@ -668,6 +668,7 @@ namespace rendering3D
 		vector<std::pair<int, int>> drawingSetVorIdx;
 		vector<int> drawingSetVorIdxFrom; // lesser SliceNo that was used to form the corresponding drawingSetVorIdx;
 
+		vector<xyt> path;
 
 		void tessellateVoronoiCurvePair(int in_nSamples, vector<VoronoiEdge>& in_vec0, vector<VoronoiEdge>& in_vec1, double in_z0, double in_z1, vector<xyt>& out_vert, vector<xyt>& out_norm);
 
@@ -818,6 +819,7 @@ namespace rendering3D
 			camForward.x() = cam.forward()[0];
 			camForward.y() = cam.forward()[1];
 			camForward.t() = cam.forward()[2];
+			static double drawableTriSize = 10.0;
 			if (planning::keyboardflag['n'])
 			{
 				float g[4] = { 0,1,0,1 };
@@ -826,11 +828,74 @@ namespace rendering3D
 				glMaterialfv(GL_BACK, GL_AMBIENT_AND_DIFFUSE, g);
 				for (auto idx : drawingSetVorIdx)
 				{
-					glBegin(GL_TRIANGLE_STRIP);
-					for (size_t i = idx.first; i < idx.second; i++)
+					//glBegin(GL_TRIANGLE_STRIP);
+					//for (size_t i = idx.first; i < idx.second; i++)
+					//{
+					//	glNormal3dv(drawingSetVorNorm[i].v3d());
+					//	glVertex3dv(drawingSetVorVert[i].v3d());
+					//
+					//	/*{
+					//		auto& norm = drawingSetVorNorm[i];
+					//		auto dot = cam.forward()
+					//	}*/
+					//}
+					//glEnd();
+					//
+					// use surface info to trim triangles
+					glBegin(GL_TRIANGLES);
+					for (size_t i = idx.first + 2; i < idx.second; i++)
 					{
-						glNormal3dv(drawingSetVorNorm[i].v3d());
-						glVertex3dv(drawingSetVorVert[i].v3d());
+						double triSize;
+						{
+							auto
+								& a = drawingSetVorVert[i - 2],
+								& b = drawingSetVorVert[i - 1],
+								& c = drawingSetVorVert[i];
+							auto ba = b - a;
+							auto ca = c - a;
+							auto cross = ba.cross(ca);
+							triSize = cross.x() * cross.x()
+								+ cross.y() * cross.y()
+								+ cross.t() * cross.t();
+
+							if (triSize > drawableTriSize)
+								continue;
+							if (fabs(cross.normalize().t()) > 0.8)
+								continue;
+						}
+
+						//set normals to always positive
+						//{
+						//	auto& n0 = drawingSetVorNorm[i-2];
+						//	auto& n1 = drawingSetVorNorm[i-1];
+						//	auto& n2 = drawingSetVorNorm[i];
+						//	auto& cf = camForward;
+						//
+						//	if (n0.dot(cf) < 0) n0 = -n0;
+						//	if (n1.dot(cf) < 0) n1 = -n1;
+						//	if (n2.dot(cf) < 0) n2 = -n2;
+						//	
+						//}
+
+						if (i % 2 == 0)
+						{
+							glNormal3dv(drawingSetVorNorm[i - 2].v3d());
+							glVertex3dv(drawingSetVorVert[i - 2].v3d());
+							glNormal3dv(drawingSetVorNorm[i - 1].v3d());
+							glVertex3dv(drawingSetVorVert[i - 1].v3d());
+							glNormal3dv(drawingSetVorNorm[i].v3d());
+							glVertex3dv(drawingSetVorVert[i].v3d());
+						}
+						else
+						{
+							glNormal3dv(drawingSetVorNorm[i - 1].v3d());
+							glVertex3dv(drawingSetVorVert[i - 1].v3d());
+							glNormal3dv(drawingSetVorNorm[i - 2].v3d());
+							glVertex3dv(drawingSetVorVert[i - 2].v3d());
+							glNormal3dv(drawingSetVorNorm[i].v3d());
+							glVertex3dv(drawingSetVorVert[i].v3d());
+						}
+
 
 						/*{
 							auto& norm = drawingSetVorNorm[i];
@@ -851,15 +916,71 @@ namespace rendering3D
 					if (drawingSetVorIdxFrom[i] == t2)
 					{
 						auto idx = drawingSetVorIdx[i];
-						glBegin(GL_TRIANGLE_STRIP);
-						for (size_t i = idx.first; i < idx.second; i++)
+						
+						//glBegin(GL_TRIANGLE_STRIP);
+						//for (size_t i = idx.first; i < idx.second; i++)
+						//{
+						//	glNormal3dv(drawingSetVorNorm[i].v3d());
+						//	glVertex3dv(drawingSetVorVert[i].v3d());
+						//}
+						//glEnd();
+
+						glBegin(GL_TRIANGLES);
+						for (size_t i = idx.first + 2; i < idx.second; i++)
 						{
-							glNormal3dv(drawingSetVorNorm[i].v3d());
-							glVertex3dv(drawingSetVorVert[i].v3d());
+							double triSize;
+							{
+								auto
+									& a = drawingSetVorVert[i - 2],
+									& b = drawingSetVorVert[i - 1],
+									& c = drawingSetVorVert[i];
+								auto ba = b - a;
+								auto ca = c - a;
+								auto cross = ba.cross(ca);
+								triSize = cross.x() * cross.x()
+									+ cross.y() * cross.y()
+									+ cross.t() * cross.t();
+
+								if (triSize > drawableTriSize)
+									continue;
+
+								if (fabs(cross.normalize().t()) > 0.8)
+									continue;
+							}
+
+							if (i % 2 == 0)
+							{
+								glNormal3dv(drawingSetVorNorm[i - 2].v3d());
+								glVertex3dv(drawingSetVorVert[i - 2].v3d());
+								glNormal3dv(drawingSetVorNorm[i - 1].v3d());
+								glVertex3dv(drawingSetVorVert[i - 1].v3d());
+								glNormal3dv(drawingSetVorNorm[i].v3d());
+								glVertex3dv(drawingSetVorVert[i].v3d());
+							}
+							else
+							{
+								glNormal3dv(drawingSetVorNorm[i - 1].v3d());
+								glVertex3dv(drawingSetVorVert[i - 1].v3d());
+								glNormal3dv(drawingSetVorNorm[i - 2].v3d());
+								glVertex3dv(drawingSetVorVert[i - 2].v3d());
+								glNormal3dv(drawingSetVorNorm[i].v3d());
+								glVertex3dv(drawingSetVorVert[i].v3d());
+							}
 						}
 						glEnd();
 					}
 				}
+			}
+			{
+				using namespace planning;
+				cout << "drawable tri size : " << drawableTriSize << endl;
+				char t;
+				t = '1';
+				if (keyboardflag[t] != keyboardflag_last[t])
+					drawableTriSize *= 1.1;
+				t = '3';
+				if (keyboardflag[t] != keyboardflag_last[t])
+					drawableTriSize /= 1.1;
 			}
 
 
@@ -873,6 +994,19 @@ namespace rendering3D
 				{
 					glVertex3dv(bifurDrawingSetTemp[i + 0].v3d());
 					glVertex3dv(bifurDrawingSetTemp[i + 1].v3d());
+				}
+				glEnd();
+			}
+
+			// 2-6. draw path
+			if (planning::keyboardflag['/'])
+			{
+				glDisable(GL_LIGHTING);
+				glColor3f(0, 0, 1);
+				glBegin(GL_LINE_STRIP);
+				for (int i = 0; i < path.size(); i++)
+				{
+					glVertex3dv(path[i].v3d());
 				}
 				glEnd();
 			}
@@ -905,12 +1039,20 @@ namespace rendering3D
 			//dbg
 			glColor3f(0, 0, 0);
 			int cnt = 0;
-			for (auto& loop : ms::Model_Result)
+			for (int i =0; i<ms::Model_Result.size(); i++)
+			{
+				auto& loop = ms::Model_Result[i];
+				//if (ms::ModelInfo_Boundary[i])
+				//	glColor3f(0, 0, 0);
+				//else
+				//	glColor3f(0, 0, 1);
+
 				for (auto& as : loop)
 				{
 					as.draw();
 					cnt++;
 				}
+			}
 			cout << "AS count : " << cnt << endl;
 
 			// 4. find voronoi
@@ -924,7 +1066,7 @@ namespace rendering3D
 			//dbg_out
 			cout << "input arcs.size() : " << vrin.arcs.size() << endl;
 			
-			const int vorOption = 99;
+			const int vorOption = 2;
 
 			// i. orig
 			if (vorOption == 0)
@@ -1234,13 +1376,55 @@ namespace rendering3D
 		int main3(int argc, char* argv[])
 		{
 			const int
-				_10_bifur		= false,
-				_11_bifur_pair	= false,
-				_12_vor2d		= false,
-				_13_vor3d		= false;
+				_10_bifur		= true,
+				_11_bifur_pair	= true,
+				_12_vor2d		= true,
+				_13_vor3d		= true;
 
 			const int
 				_hard_case = true;
+
+			//planning::_h_fmdsp_g1 = 1e-2;
+			//ms::numofframe = 3600;
+
+			// 0. no anti-aliasing
+			{
+				glDisable(GL_DITHER);
+				glDisable(GL_POINT_SMOOTH);
+				glDisable(GL_LINE_SMOOTH);
+				glDisable(GL_POLYGON_SMOOTH);
+				glHint(GL_POINT_SMOOTH, GL_DONT_CARE);
+				glHint(GL_LINE_SMOOTH, GL_DONT_CARE);
+				glHint(GL_POLYGON_SMOOTH_HINT, GL_DONT_CARE);
+				#define GL_MULTISAMPLE_ARB 0x809D
+				glDisable(GL_MULTISAMPLE_ARB);
+
+				glHint(GL_POINT_SMOOTH_HINT, GL_FASTEST);
+				glDisable(GL_POINT_SMOOTH);
+				glDisable(GL_BLEND);
+				glDisable(GL_DITHER);
+				glDisable(GL_FOG);
+				glDisable(GL_LIGHTING);
+				glDisable(GL_TEXTURE_1D);
+				glDisable(GL_TEXTURE_2D);
+				//glDisable(GL_TEXTURE_3D);
+				glShadeModel(GL_FLAT);
+				//glDisable(GL_MULTISAMPLE);
+			}
+
+			// 0.5 read path to draw;
+			{
+				ifstream fin("pathFound.txt");
+				int sz;
+				fin >> sz;
+
+				for (int i = 0; i < sz; i++)
+				{
+					double x, y, t;
+					fin >> x >> y >> t;
+					path.push_back(xyt(x, y, (t-180)/180 * PI));
+				}
+			}
 
 			// 1. basic stuff
 			wd = 1600;
@@ -1326,6 +1510,10 @@ namespace rendering3D
 
 				cam.modelMat[10] = z;
 
+			}
+			else
+			{
+				cam.modelMat[10] = 0.5;
 			}
 
 			// 3. use calc
@@ -1443,20 +1631,21 @@ namespace rendering3D
 
 
 					// compare size
+					double i2 = i * 360.0 / ms::numofframe;
 					if (bifurPts[i].size() > bifurPts[iNext].size())
 					{
 						smaller = bifurPts[iNext];
 						bigger = bifurPts[i];
 
-						if (i > 180)
+						if (i2 > 180)
 						{
-							biggerZ = double(i - 360) / 360.0 * PI2;
-							smallerZ = double(i - 359) / 360.0 * PI2;
+							biggerZ  = double(i2 - 360) / 360.0 * PI2;
+							smallerZ = double(i2 - 359) / 360.0 * PI2;
 						}
 						else
 						{
-							biggerZ = double(i) / 360.0 * PI2;
-							smallerZ = double(i +1) / 360.0 * PI2;
+							biggerZ  = double(i2) / 360.0 * PI2;
+							smallerZ = double(i2 +1) / 360.0 * PI2;
 						}
 					}
 					else
@@ -1464,15 +1653,15 @@ namespace rendering3D
 						smaller = bifurPts[i];
 						bigger = bifurPts[iNext];
 
-						if (i > 180)
+						if (i2 > 180)
 						{
-							biggerZ = double(i - 359) / 360.0 * PI2;
-							smallerZ = double(i - 360) / 360.0 * PI2;
+							biggerZ  = double(i2 - 359) / 360.0 * PI2;
+							smallerZ = double(i2 - 360) / 360.0 * PI2;
 						}
 						else
 						{
-							biggerZ = double(i + 1) / 360.0 * PI2;
-							smallerZ = double(i ) / 360.0 * PI2;
+							biggerZ  = double(i2 + 1) / 360.0 * PI2;
+							smallerZ = double(i2 ) / 360.0 * PI2;
 						}
 					}
 
@@ -1491,8 +1680,8 @@ namespace rendering3D
 							}
 						}
 
-						xyt big(bigger[j].x(), bigger[j].y(), biggerZ);
-						xyt sml(smaller[minIdx].x(), smaller[minIdx].y(), smallerZ);
+						xyt big(bigger[j].x(),		bigger[j].y(),		biggerZ );
+						xyt sml(smaller[minIdx].x(), smaller[minIdx].y(), smallerZ );
 
 						if (big.t() < sml.t())
 						{
@@ -1540,6 +1729,66 @@ namespace rendering3D
 					vc.setInput(vrin.arcs, vrin.left, vrin.color);
 					vc.setOutputG(vcg);
 					vc.calculateG();
+
+					//dbg  :: check erroneous edge
+					{
+						auto& E = vcg.E();
+						auto& V = vcg.V();
+						for (int i =0; i < E.size(); i++)
+						{
+							auto& e = E[i];
+							if (e.size() == 0)
+								continue;
+							if (e.front().v0.length2() > 10)
+							{
+								auto& e2v = vcg.E2V()[i];
+								auto& v2e0 = vcg.V2E()[e2v.first][e2v.second];
+								auto& v2e1 = vcg.V2E()[e2v.second][e2v.first];
+								auto wrongVert = e2v.first;
+
+								// v2e
+								v2e0 = -1;
+								v2e1 = -1;
+								
+								//v
+								V[wrongVert] = Point(0, 0);
+								
+								//e2v
+								e2v.first = wrongVert;
+								e2v.second = wrongVert;
+
+								// e
+								e.resize(0);
+								continue;
+							}
+
+							if (e.back().v1.length2() > 10)
+							{
+								auto& e2v = vcg.E2V()[i];
+								auto& v2e0 = vcg.V2E()[e2v.first][e2v.second];
+								auto& v2e1 = vcg.V2E()[e2v.second][e2v.first];
+								auto wrongVert = e2v.second;
+
+								// v2e
+								v2e0 = -1;
+								v2e1 = -1;
+
+								//v
+								V[wrongVert] = Point(0, 0);
+
+								//e2v
+								e2v.first = wrongVert;
+								e2v.second = wrongVert;
+
+								// e
+								e.resize(0);
+								continue;
+							}
+						}
+						for (auto& v : V)
+						{
+						}
+					}
 				}
 			} 
 
@@ -1584,7 +1833,7 @@ namespace rendering3D
 						{
 						dbg //dbg_out
 							double max = -1;
-							for (size_t i = 0; i < edge.size() - 1; i++)
+							for (int i = 0; i < int(edge.size()) - 1; i++)
 							{
 								// just in case : note that i has two scopes
 								auto& p0 = edge[i].v1;
@@ -1600,7 +1849,22 @@ namespace rendering3D
 						}
 
 						// 13-3-1. examine edge's endpoint's projection (find pair)
-						auto pair = vcgr1.findVoronoiCurvePair(edge.front(), edge.back(), interSlicePointError);
+						/*dbg*/if (edge.size() == 0)
+						{
+							continue;
+						}
+						vector<planning::output_to_file::v_edge> pair;
+						try {
+							pair = vcgr1.findVoronoiCurvePair(edge.front(), edge.back(), interSlicePointError);
+						}
+						catch (...)
+						{
+							continue;
+						};
+						/*dbg*/if (pair.size() == 0)
+						{
+							continue;
+						}
 						
 						// 13-3-2. form samples; // Just pick vEdge endpoints for now.
 						int ns = nSamples;
@@ -1621,17 +1885,18 @@ namespace rendering3D
 						// 13-3-3 find out z coord
 						double z0, z1;
 						{
-							if (i < 180)
+							double i2 = i * 360.0 / ms::numofframe;
+							if (i2 < 180)
 							{
-								z0 = i;
-								z1 = i + 1;
+								z0 = i2;
+								z1 = i2 + 1;
 								z0 = z0 * PI / 180;
 								z1 = z1 * PI / 180;
 							}
 							else
 							{
-								z0 = i - 360;
-								z1 = i + 1 - 360;
+								z0 = i2 - 360;
+								z1 = i2 + 1 - 360;
 								z0 = z0 * PI / 180;
 								z1 = z1 * PI / 180;
 							}
