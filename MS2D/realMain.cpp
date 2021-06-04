@@ -32,6 +32,12 @@ namespace ms
 		decltype(planning::voronoiBoundary)& voronoiBoundary,
 		std::vector<planning::VR_IN> VRINs
 		);
+	namespace renderPathGlobal
+	{
+		extern vector<Vertex> vecVertices;
+		extern map<Vertex, int, VertexLessFn> mapLookup;
+		extern Graph theGr;
+	}
 }
 
 namespace rendering3D
@@ -206,10 +212,10 @@ int main(int argc, char *argv[]) {
 
 	//sceneEditor::main(argc, argv);	// interactive editing
 	//rendering3D::main3::main3(argc, argv);	// draw 3d c-space
-	//graphSearch::main2(argc, argv);		// draw moving robot
+	graphSearch::main2(argc, argv);		// draw moving robot
 	//graphSearch::main(0, NULL);
 	//ms::main2(argc, argv); //RSV
-	ms::main(argc, argv); // mink test
+	//ms::main(argc, argv); // mink test
 
 	system("pause");
 }
@@ -451,6 +457,29 @@ namespace graphSearch
 					<< renderedPath[i + 2] << endl;
 			}
 		}
+
+		// ready for renderPath
+		ms::renderPathGlobal::vecVertices = vecVertices;
+		ms::renderPathGlobal::mapLookup = mapLookup;
+		ms::renderPathGlobal::theGr = theGr;
+		{
+			for (int i = 0; i< v_edges.size(); i++)
+			{
+				auto& ves = v_edges[i];
+				for (auto& ve : ves)
+				{
+					auto& p = ve.v0;
+					if (ve.idx[0] < 0)
+						continue;
+					auto& c = VRINs[i].arcs[ve.idx[0]];
+					auto d = (p - c.c.c).length2();
+					d = sqrt(d);
+
+					ve.clr0() = fabs(d - c.cr());
+				}
+			}
+		}
+
 		ms::renderPath(argc, argv, renderedPath);
 
 		return 0;

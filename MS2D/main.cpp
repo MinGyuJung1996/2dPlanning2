@@ -3,6 +3,7 @@
 #include <iomanip>
 #include "voronoi.hpp"
 #include "collision detection.hpp"
+#include "AStarOnVorDiag.h"
 
 
 planning::coneVoronoi coneVor;
@@ -1170,6 +1171,7 @@ namespace ms {
 		std::vector<std::vector<planning::output_to_file::v_edge>> v_edges;
 		decltype(planning::voronoiBoundary) voronoiBoundary;
 		int& sliceIdx = ms::t2;
+
 	}
 	/*
 	similar struct to main funcs
@@ -1386,9 +1388,28 @@ namespace ms {
 
 	namespace renderPathGlobal
 	{
+		// path info
 		double* pathPtr;
 		int pathSize;
 		int pathIdx = 0;
+
+		double* maxClearPath = NULL;
+		int mcPathSize = 0;
+
+		// I/O
+		int clickStatus = 0;
+		bool clickNow = false;
+		double
+			sx, sy, sz = 0,
+			ex, ey, ez = 0;
+		double
+			clickedZ = 0.0;
+
+		// Astar
+		vector<Vertex> vecVertices;
+		map<Vertex, int, VertexLessFn> mapLookup;
+		Graph theGr;
+		Vertex ver0, ver1;
 	}
 
 	void renderPath(
@@ -1532,7 +1553,214 @@ namespace ms {
 				}
 			}
 			
+			// 5. draw robot when robot is being pressed;
+			if(clickNow)
+			if(clickStatus == 0 || clickStatus == 1)
+			{
+				if (clickStatus == 0)
+				{
+					glColor3f(1, 0, 0);
+				}
+				else
+				{
+					glColor3f(0, 0, 1);
+				}
+
+				auto& robot = Models_Approx[robotIdx];
+				Point translation = clickedPoint;
+				double rotationDegree = clickedZ;
+				for (auto& as : robot)
+					for (auto& arc : as.Arcs)
+					{
+						cd::translateArc(cd::rotateArc(arc, rotationDegree + 180.0), translation).draw();
+					}
+				glPointSize(4.0f);
+				glBegin(GL_POINTS);
+				glVertex3d(translation.P[0], translation.P[1], -0.5);
+				glEnd();
+			}
+
 			glutSwapBuffers();
+		};
+		auto mouseFunc = [](int button, int action, int x, int y) ->void
+		{
+
+			if (button == 3)
+				clickedZ += 15.0;
+
+			if (button == 4)
+				clickedZ -= 15.0;
+
+			if (button == GLUT_LEFT_BUTTON && action == GLUT_DOWN)
+			{
+				clickNow = true;
+			}
+
+			if (button == GLUT_LEFT_BUTTON && action == GLUT_UP)
+			{
+				clickNow = false;
+
+				// 1. get clicked point
+				auto fx = float(x - wd / 2) / (wd / 2);
+				auto fy = float(-y + ht / 2) / (ht / 2);
+				fx = zoom * fx + tx;
+				fy = zoom * fy + ty;
+				clickedPoint.x() = fx;
+				clickedPoint.y() = fy;
+
+				// 2.
+				switch (clickStatus)
+				{
+				case 0:
+					// set start point
+					sx = clickedPoint.x();
+					sy = clickedPoint.y();
+					sz = clickedZ;
+					clickStatus = 1;
+					cout << "Start point : " << sx << ", " << sy << ", " << sz << endl;
+					break;
+
+				case 1:
+					// set end point
+					ex = clickedPoint.x();
+					ey = clickedPoint.y();
+					ez = clickedZ;
+					clickStatus = 2;
+					cout << "End point : " << ex << ", " << ey << ", " << ez << endl;
+					break;
+
+				case 2:
+					{
+						// Alias
+						std::vector<std::vector<v_edge>>&
+							v_edges = planning::output_to_file::v_edges;
+						int szIdx = sz / 360.0 * ms::numofframe; while(szIdx < 0) szIdx += ms::numofframe; szIdx %= ms::numofframe;
+						int ezIdx = ez / 360.0 * ms::numofframe; while(ezIdx < 0) ezIdx += ms::numofframe; ezIdx %= ms::numofframe;
+						{
+							//just to make 64-bits of z value all same with that of a-star graph
+							double dz = 360.0 / v_edges.size();
+
+							sz = 0.0;
+							ez = 0.0;
+							for (int i = 0; i < szIdx; i++)
+								sz += dz;
+							for (int i = 0; i < ezIdx; i++)
+								ez += dz;
+						}
+
+						// i. find closest v_edge
+
+						// i-1.
+						double closestDist = 1E8;
+						Point closestPoint;
+						Point temp(sx, sy);
+
+						// for (All ve)
+						for (int i = 0; i < v_edges[szIdx].size(); i++)
+						{
+							auto& ve = v_edges[szIdx][i];
+							auto& p = ve.v0;
+							auto  d = sqrt((temp - p).length2());
+							if (d < closestDist && d < ve.clr0())
+							{
+								closestDist = d;
+								closestPoint = p;
+							}
+						}
+						if (closestDist == 1E8)
+						{
+							cerr << "Invalid Input to Astar" << endl;
+							clickStatus = 0;
+							break;
+						}
+						ver0 = Vertex(closestPoint.x(), closestPoint.y(), sz);
+
+						// i-2.
+						closestDist = 1E8;
+						temp = Point(ex, ey);
+						// for (All ve)
+						for (int i = 0; i < v_edges[ezIdx].size(); i++)
+						{
+							auto& ve = v_edges[ezIdx][i];
+							auto& p = ve.v0;
+							auto  d = sqrt((temp - p).length2());
+							if (d < closestDist && d < ve.clr0())
+							{
+								closestDist = d;
+								closestPoint = p;
+							}
+						}
+						if (closestDist == 1E8)
+						{
+							cerr << "Invalid Input to Astar" << endl;
+							clickStatus = 0;
+							break;
+						}
+						ver1 = Vertex(closestPoint.x(), closestPoint.y(), ez);
+						
+						
+						// ii. run a-star
+						std::vector<Vertex> path = invoke_AStar(theGr, vecVertices, mapLookup, ver0, ver1);
+
+						// iii. do refinement.
+
+						{
+							//temp
+							if (maxClearPath == NULL)
+							{
+
+							}
+							else
+							{
+								delete[] pathPtr;
+							}
+
+							pathSize = path.size() + 2;
+							pathPtr = new double[(path.size()+2) * 3];
+							pathIdx = 0;
+
+							for (int i = 0; i < path.size(); i++)
+							{
+								pathPtr[3 * i + 3] = path[i].x;
+								pathPtr[3 * i + 4] = path[i].y;
+								pathPtr[3 * i + 5] = path[i].z;
+							}
+
+							pathPtr[0] = sx;
+							pathPtr[1] = sy;
+							pathPtr[2] = sz;
+							pathPtr[(path.size() + 1) * 3 + 0] = ex;
+							pathPtr[(path.size() + 1) * 3 + 1] = ey;
+							pathPtr[(path.size() + 1) * 3 + 2] = ez;
+
+
+						}
+
+						clickStatus = 0;
+						break;
+					}
+				default:
+					break;
+				
+				}
+
+			}
+
+			if (button == GLUT_RIGHT_BUTTON)
+			{
+				clickStatus = 0;
+			}
+
+			glutPostRedisplay();
+		};
+		auto motionFunc = [](int x, int y)
+		{
+			auto fx = float(x - wd / 2) / (wd / 2);
+			auto fy = float(-y + ht / 2) / (ht / 2);
+			fx = zoom * fx + tx;
+			fy = zoom * fy + ty;
+			clickedPoint.x() = fx;
+			clickedPoint.y() = fy;
 		};
 
 		glutInit(&argc, argv);
@@ -1541,8 +1769,9 @@ namespace ms {
 		glutCreateWindow("2D planning");
 		glutReshapeFunc(reshapeFunc);
 		glutDisplayFunc(displayFunc);
-		glutMouseFunc(mouse_callback);
+		glutMouseFunc(mouseFunc);
 		glutKeyboardFunc(keyboard_callback);
+		glutMotionFunc(motionFunc);
 		glutIdleFunc(idleFunc);
 
 		glEnable(GL_DEPTH_TEST);
