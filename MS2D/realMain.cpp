@@ -205,10 +205,11 @@ int main(int argc, char *argv[]) {
 	//cout << "fake func" << endl;
 
 	//sceneEditor::main(argc, argv);	// interactive editing
-	rendering3D::main3::main3(argc, argv);	// draw 3d c-space
+	//rendering3D::main3::main3(argc, argv);	// draw 3d c-space
 	//graphSearch::main2(argc, argv);		// draw moving robot
 	//graphSearch::main(0, NULL);
 	//ms::main2(argc, argv); //RSV
+	ms::main(argc, argv); // mink test
 
 	system("pause");
 }
@@ -227,8 +228,8 @@ namespace graphSearch
 	*/
 	int main2(int argc, char* argv[])
 	{
-		int robotType = 2;
-		int obsType   = 2;
+		int robotType = 0;
+		int obsType   = 0;
 
 		// 1. build v_edges
 		planning::_h_fmdsp_g1 = 1e-8;

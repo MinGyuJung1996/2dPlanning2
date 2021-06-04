@@ -23,7 +23,7 @@ namespace ms {
 	/* Comments - MS2D.h Âü°í */
 
 #pragma region global variables related to time.
-	int ModelInfo_CurrentFrame = 357; // 355;//355; //148; // 44;		// 7,7,261 case
+	int ModelInfo_CurrentFrame = 64; // 355;//355; //148; // 44;		// 7,7,261 case
 	int ModelInfo_CurrentFrameOld; // due to the program structure... when we process frame i, modelInfo_CurrentFrame = i + 1...(due to pre increment in some func...) => save val.
 	//int ModelInfo_CurrentFrame = 93;			// [0, 360)
 	pair<int, int> ModelInfo_CurrentModel;	// [0, 8) x [0, 8)
@@ -261,6 +261,7 @@ namespace ms {
 		// ~debug
 		
 		// DRAW MINK
+		glLineWidth(5.0);
 		if(planning::drawMinkowski)
 		for (int i = 0; i < (int)Model_Result.size(); i++) {
 
@@ -451,7 +452,7 @@ namespace ms {
 			glPointSize(2.8f);
 
 
-			glColor3f(0.0f, 0.0f, 0.0f);
+			glColor3f(1.0f, 0.0f, 0.0f);
 			for (auto& as : Models_Approx[t1])
 			{
 				auto translation = as.init();
@@ -471,7 +472,7 @@ namespace ms {
 
 		//interest arcspline
 		//debug
-		static int interest = 0, interest2 = 0, cpressed = 0, vpressed = 0;
+		static int interest = 0, interest2 = 0, cpressed = -1, vpressed = -1;
 		{
 			if (planning::keyboardflag['c'] && !cpressed)
 			{
@@ -485,8 +486,8 @@ namespace ms {
 				vpressed = 1;
 			}
 			if (!planning::keyboardflag['v']) vpressed = 0;
-			interest = interest % Models_Rotated_Approx[ModelInfo_CurrentFrame].size();
-			interest2 = interest2 % Models_Approx[ModelInfo_CurrentModel.second].size();
+			//interest = interest % Models_Rotated_Approx[ModelInfo_CurrentFrame].size();
+			//interest2 = interest2 % Models_Approx[ModelInfo_CurrentModel.second].size();
 		}
 
 		//dbg_out 
@@ -1270,7 +1271,7 @@ namespace ms {
 			for(auto& as: robot)
 				for (auto& arc : as.Arcs)
 				{
-					cd::rotateArc(arc, sliceIdx).draw();
+					cd::rotateArc(arc, sliceIdx * 360.0 / ms::numofframe).draw();
 				}
 			
 			// VIEWPORT 2 (RIGHT) : draw mink/voronoi

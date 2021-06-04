@@ -691,7 +691,8 @@ extern double basis6[10001][7];
 
 const bool change7 = false; // change 7 model to scene-with-obstacles (6 + 7)
 const bool change0 = false; // change 0 to half size
-const bool override1 = true;
+const bool change6 = true; // change human model size
+const bool override1 = false;
 const bool override7 = true;
 std::vector<CircularArc> Model_vca[8]; // model's circularArc representation (before calling postprocessing)
 bool Model_from_arc[8];					// true: read from circular arc file // false : read from bezier				
@@ -711,6 +712,8 @@ void initialize()
 
 	ModelInfo_CurrentModel.first  = 1; // 1
 	ModelInfo_CurrentModel.second = 7; // 6
+	ModelInfo_CurrentModel.first  = 6;
+	ModelInfo_CurrentModel.second = 7;
 	
 	
 	Models_Imported[0] = import_Crv("impt1.txt");
@@ -883,61 +886,81 @@ void initialize()
 		}
 	}
 
+	if (change6)
+	{
+		int ind = 6;
+		Point a[4];
+		auto trans = Point(0, 0);
+		auto scale = 0.4f;
+		for (auto& i : Models_Imported[ind])
+		{
+			a[0] = scale * i.P[0] - trans;
+			a[1] = scale * i.P[1] - trans;
+			a[2] = scale * i.P[2] - trans;
+			a[3] = scale * i.P[3] - trans;
+			i = BezierCrv(a);
+		}
+		for (auto& i : InteriorDisks_Imported[ind])
+		{
+			i = (Circle(scale * i.c - trans, scale * i.r));
+		}
+	}
+
 	//~debug
 
 
 
-	//planning::output_to_file::objSize.resize(8);
+	planning::output_to_file::objSize.resize(8);
 
-	//for (int i = 0; i < 8; i++) {
-	//	for (int j = 0; j < (int)Models_Imported[i].size(); j++) {
-	//		Models_Imported[i][j].segmentation(Models[i]);
-	//	}
+	for (int i = 0; i < 8; i++) {
+		for (int j = 0; j < (int)Models_Imported[i].size(); j++) {
+			Models_Imported[i][j].segmentation(Models[i]);
+		}
 
-	//	std::cout << "hello" << std::endl;
-	//	for (int j = 0; j < (int)Models[i].size(); j++) {
-	//		auto s = Models[i][j].integrityTest();
-	//		if (s.size() > 0)
-	//			Models[i].insert(Models[i].begin() + j + 1, s.begin(), s.end());
-	//	}
+		std::cout << "hello" << std::endl;
+		for (int j = 0; j < (int)Models[i].size(); j++) {
+			auto s = Models[i][j].integrityTest();
+			if (s.size() > 0)
+				Models[i].insert(Models[i].begin() + j + 1, s.begin(), s.end());
+		}
 
-	//	std::cout << "hello" << std::endl;
-	//	for (int j = 0; j < (int)Models[i].size(); j++) {
-	//		auto tempSpiral = ArcSpline(Models[i][j]); /* where bez -> arc */
-	//		auto input = tempSpiral.integrityTest();
-	//		Models_Approx[i].insert(Models_Approx[i].end(), input.begin(), input.end());
-	//	}
+		std::cout << "hello" << std::endl;
+		for (int j = 0; j < (int)Models[i].size(); j++) {
+			auto tempSpiral = ArcSpline(Models[i][j]); /* where bez -> arc */
+			auto input = tempSpiral.integrityTest();
+			Models_Approx[i].insert(Models_Approx[i].end(), input.begin(), input.end());
+		}
 
-	//	std::cout << "hello" << std::endl;
-	//	//build planning::output_to_file::objSize;
-	//	if (i != 7)
-	//	{
-	//		int cnt = 0;
-	//		for (auto& as : Models_Approx[i])
-	//		{
-	//			cnt += as.Arcs.size();
-	//		}
-	//		planning::output_to_file::objSize[i].push_back(cnt);
-	//	}
-	//	else
-	//	{
-	//		int cnt = 0;
-	//		int a0 = Models_Imported[7].size() - Models_Imported[6].size();
-	//		for (size_t j = 0; j < a0; j++)
-	//		{
-	//			cnt += Models_Approx[i][j].Arcs.size();
-	//		}
-	//		planning::output_to_file::objSize[i].push_back(cnt);
+		std::cout << "hello" << std::endl;
+		//build planning::output_to_file::objSize;
+		if (i != 7)
+		{
+			int cnt = 0;
+			for (auto& as : Models_Approx[i])
+			{
+				cnt += as.Arcs.size();
+			}
+			planning::output_to_file::objSize[i].push_back(cnt);
+		}
+		else
+		{
+			int cnt = 0;
+			int a0 = Models_Imported[7].size() - Models_Imported[6].size();
+			for (size_t j = 0; j < a0; j++)
+			{
+				cnt += Models_Approx[i][j].Arcs.size();
+			}
+			planning::output_to_file::objSize[i].push_back(cnt);
 
-	//		cnt = 0;
-	//		for (size_t j = a0; j < Models_Imported[7].size(); j++)
-	//		{
-	//			cnt += Models_Approx[i][j].Arcs.size();
-	//		}
-	//		planning::output_to_file::objSize[i].push_back(cnt);
-	//	}
-	//	//end objSize
-	//}
+			cnt = 0;
+			for (size_t j = a0; j < Models_Imported[7].size(); j++)
+			{
+				cnt += Models_Approx[i][j].Arcs.size();
+			}
+			planning::output_to_file::objSize[i].push_back(cnt);
+		}
+		//end objSize
+	}
 
 	// tried to merge models_approx after... but seems to break
 	if (false)
@@ -1288,15 +1311,15 @@ void initialize()
 
 		Point uniformTranslation = Point(0.15, 0.05);
 
-		//appendModelToScene(arcObjectL, circObjectL, 0.3, 0, Point(-0.3, -0.3));
-		//appendModelToScene(arcObjectL, circObjectL, 0.4, 180, Point(0.3, 0.3));
-		appendModelToScene(arcObjectL3, circObjectL3, 1.3, -90, uniformTranslation + Point(-0.1, +0.1));
-		appendModelToScene(arcObjectL2, circObjectL2, 0.4, -90, uniformTranslation + Point(-0.1, +0.1));
-		appendModelToScene(arcObjectL3, circObjectL3, 1.3, +90, uniformTranslation + Point(-0.5, +0.03));
-		appendModelToScene(arcObjectL2, circObjectL2, 0.4, +90, uniformTranslation + Point(-0.5, +0.03));
-		appendModelToScene(arcObjectSq, circObjectSq, 0.8,  +0, uniformTranslation + Point(+0.07, - 0.3));
-		appendModelToScene(arcObjectSq, circObjectSq, 0.4, +55, uniformTranslation + Point(-0.53, 0.3));
-
+		
+		//appendModelToScene(arcObjectL3, circObjectL3, 1.3, -90, uniformTranslation + Point(-0.1, +0.1));
+		//appendModelToScene(arcObjectL2, circObjectL2, 0.4, -90, uniformTranslation + Point(-0.1, +0.1));
+		//appendModelToScene(arcObjectL3, circObjectL3, 1.3, +90, uniformTranslation + Point(-0.5, +0.03));
+		//appendModelToScene(arcObjectL2, circObjectL2, 0.4, +90, uniformTranslation + Point(-0.5, +0.03));
+		//appendModelToScene(arcObjectSq, circObjectSq, 0.8,  +0, uniformTranslation + Point(+0.07, - 0.3));
+		//appendModelToScene(arcObjectSq, circObjectSq, 0.4, +55, uniformTranslation + Point(-0.53, 0.3));
+		//
+		appendModelToScene(arcObjectSq, circObjectSq, 1.0, 0.0, Point(0,0));
 
 
 		// 4. build vec<AS> sceneProcessed(input to MinkSum)
@@ -1443,7 +1466,7 @@ void postProcess(int FirstModel, int SecondModel)
 			// if (this is the case where original bezier curve does not exists)
 			if (Model_from_arc[FirstModel])
 			{
-				planning::_Convert_VectorCircularArc_To_MsInput(Model_vca[FirstModel], Models_Rotated_Approx[i], i);
+				planning::_Convert_VectorCircularArc_To_MsInput(Model_vca[FirstModel], Models_Rotated_Approx[i], i * 360/ms::numofframe);
 			}
 			else
 			{
@@ -5002,10 +5025,11 @@ std::pair<CircularArc, CircularArc> CircularArc::subDiv(double t)
 */
 void CircularArc::draw()
 {
-	glBegin(GL_POINTS);
-	glVertex2dv(x[0].P);
-	glVertex2dv(x[1].P);
-	glEnd();
+	//glBegin(GL_POINTS);
+	//glVertex2dv(x[0].P);
+	//glVertex2dv(x[1].P);
+	//glEnd();
+
 	glBegin(GL_LINE_STRIP);
 	for (int i = 0; i <= RES; i++) {
 		//glColor3f((float)i / (float)RES, 1.0f - (float)i / (float)RES, 0.5f); //for testing direction
