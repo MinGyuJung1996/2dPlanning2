@@ -814,6 +814,7 @@ namespace rendering3D
 			}
 
 
+
 			// 5. drawVoronoi 3d
 			xyt camForward;
 			camForward.x() = cam.forward()[0];

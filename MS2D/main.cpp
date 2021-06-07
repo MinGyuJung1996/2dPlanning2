@@ -10,8 +10,16 @@ planning::coneVoronoi coneVor;
 
 namespace graphSearch
 {
+	extern std::vector<cd::lineSegmentCollisionTester> testers;
 	extern std::vector<cd::pointCollisionTester> testers2;
 }
+
+void
+	refinePathBiarc(vector<Vertex>& in, int nBiarc, vector<CircularArc>& outArc, vector<double>& outRot);
+void 
+	tessPathBiarc(vector<CircularArc>& in_pathBiarc, vector<double>& in_pathBiarcRot, double in_tessLen, vector<Vertex>& out_pathTess);
+void 
+	tessPathAlignTheta(vector<Vertex>& pathTess, std::vector<cd::pointCollisionTester>& pTesters, Point forwardDir);
 
 namespace ms {
 
@@ -1393,8 +1401,7 @@ namespace ms {
 		int pathSize;
 		int pathIdx = 0;
 
-		double* maxClearPath = NULL;
-		int mcPathSize = 0;
+		vector<Vertex> mcPath;
 
 		// I/O
 		int clickStatus = 0;
@@ -1410,6 +1417,200 @@ namespace ms {
 		map<Vertex, int, VertexLessFn> mapLookup;
 		Graph theGr;
 		Vertex ver0, ver1;
+
+		// Biarc approx
+		vector<CircularArc> arcPath;
+		vector<double> arcPathRot;
+		vector<Vertex> arcPathTess;
+
+		/*
+		Def:
+		
+		Note:
+			Does not care loop feature of theta
+		*/
+		void refinePath(vector<Vertex>& in, vector<Vertex>& out)
+		{
+			auto& lTest = graphSearch::testers;
+			auto& pTest = graphSearch::testers2;
+
+			// Naive 3d line tester
+			// Def : test 3d line
+			// return true iff collision
+			auto lTest3D = [&pTest, &lTest](Vertex& p0, Vertex& p1)
+			{
+				int sliceIdx0 = p0.z / 360.0 * ms::numofframe;
+				int sliceIdx1 = p1.z / 360.0 * ms::numofframe;
+
+				// simple case
+				if (sliceIdx0 == sliceIdx1)
+				{
+					return lTest[sliceIdx0].test(Point(p0.x, p0.y), Point(p1.x, p1.y));
+				}
+
+				double
+					x0 = p0.x,
+					y0 = p0.y,
+					z0 = p0.z,
+					dx = p1.x - p0.x,
+					dy = p1.y - p0.y,
+					dz = p1.z - p0.z;
+				dx /= dz;
+				dy /= dz;
+				dz = 1.0;
+
+				Point v0(p0.x, p0.y);
+				Point v1;
+				v1.x() = v0.x() + dx;
+				v1.y() = v0.y() + dy;
+
+				// loop
+				{
+					//ready for loop
+					int increment = 1;
+					if (sliceIdx0 > sliceIdx1)
+						increment = -1;
+
+					// just sample points and do tests
+					for (int i = sliceIdx0; i != sliceIdx1; i += increment)
+					{
+						if (lTest[i].test(v0, v1))return true;
+						if (lTest[i + increment].test(v0, v1))return true;
+
+
+						// v0, v1
+						v0 = v1;
+						v1.x() = v0.x() + dx;
+						v1.y() = v0.y() + dy;
+					}
+					
+				}
+				return false;
+			};
+
+			// 1. big refine first (rverses order)
+			vector<Vertex> temp2;
+			{
+				const int loopLimit = 7;
+
+				int sz = in.size();
+				auto temp = in;
+
+				while (temp.size() > 1)
+				{
+					int eIdx = temp.size() - 1;
+					int bIdx = 0;
+					int sampleLength = temp.size() - 1;
+
+					int sizeBefore = temp.size();
+
+					for (int i = 0; i < loopLimit; i++)
+					{
+						bIdx = eIdx - sampleLength;
+						
+						// err check
+						if (sampleLength <= 1)
+						{
+							temp2.push_back(temp[eIdx]);
+							temp.pop_back();
+							break;
+						}
+
+						if (bIdx < 0)
+						{
+							sampleLength /= 2;
+							continue;
+						}
+
+						// test
+						int testRes = lTest3D(temp[bIdx], temp[eIdx]);
+						if (testRes)
+						{
+							//when collision
+							if (i == loopLimit - 1)
+							{
+								//// last loop
+								//for (int j = eIdx; j > bIdx; j--)
+								//{
+								//	temp2.push_back(temp[j]);
+								//}
+								//temp.resize(bIdx + 1);
+								//break;
+
+								temp2.push_back(temp[eIdx]);
+								temp.pop_back();
+								break;
+							}
+							else
+							{
+								sampleLength /= 2;
+								continue;
+							}
+
+						}
+						else
+						{
+							//no collision -> reduce to a line;
+							temp2.push_back(temp[eIdx]);
+							temp.resize(bIdx + 1);
+							break;
+
+						}
+					}
+
+					int sizeAfter = temp.size();
+
+					if (sizeAfter >= sizeBefore)
+					{
+						cerr << "!!!ERR : in refinePath : size of temp did not decrease" << endl;
+						break;
+					}
+				}
+
+				for (int i = temp.size() - 1; i > -1; i--)
+				{
+					temp2.push_back(temp[i]);
+				}
+			}
+
+
+			// 99. tesselate;
+			reverse(temp2.begin(), temp2.end());
+			//dbg
+			{
+				out = temp2;
+				return;
+			}
+
+			auto& beforTess = temp2;
+			auto& afterTess = out;
+			for (int i = 0; i < temp2.size() - 1; i++)
+			{
+				const double dl = 0.01;
+
+				auto& v0 = temp2[i];
+				auto& v1 = temp2[i+1];
+				auto dv = v0 - v1;
+				auto l = dv.norm();
+				int n = l / dl;
+				if (n < 2)
+				{
+					afterTess.push_back(temp2[i]);
+				}
+				else
+				{
+					for (int j = 0; j < n; j++)
+					{
+						double t = double(j) / n;
+						double t1 = 1.0 - t;
+						auto v = v0 * t + v1 * t1;
+						afterTess.push_back(v);
+					}
+				}
+			}
+
+
+		}
 	}
 
 	void renderPath(
@@ -1489,86 +1690,127 @@ namespace ms {
 			for (auto& as : scene)
 				as.draw();
 
-			// 2. draw robot
-			auto& robot = Models_Approx[robotIdx];
-			Point translation(pathPtr[3 * pathIdx + 0], pathPtr[3 * pathIdx + 1]);
-			double rotationDegree = pathPtr[3 * pathIdx + 2];
-			for (auto& as : robot)
-				for (auto& arc : as.Arcs)
-				{
-					cd::translateArc(cd::rotateArc(arc, rotationDegree + 180.0), translation).draw();
-				}
-			glPointSize(4.0f);
-			glBegin(GL_POINTS);
-			glVertex3d(translation.P[0], translation.P[1], -0.5);
-			glEnd();
+			//// 2. draw robot
+			//auto& robot = Models_Approx[robotIdx];
+			//Point translation(pathPtr[3 * pathIdx + 0], pathPtr[3 * pathIdx + 1]);
+			//double rotationDegree = pathPtr[3 * pathIdx + 2];
+			//for (auto& as : robot)
+			//	for (auto& arc : as.Arcs)
+			//	{
+			//		cd::translateArc(cd::rotateArc(arc, rotationDegree + 180.0), translation).draw();
+			//	}
+			//glPointSize(4.0f);
+			//glBegin(GL_POINTS);
+			//glVertex3d(translation.P[0], translation.P[1], -0.5);
+			//glEnd();
 
-			// 3. draw path
-			glBegin(GL_LINE_STRIP);
-			for (size_t i = 0; i < pathSize; i++)
+			if (planning::keyboardflag['1'])
 			{
-				double ratio = (pathPtr[3 * i + 2]) / 360.0;
-				glColor3f(1 - ratio, ratio, 0);
-				glVertex2d(pathPtr[3 * i + 0], pathPtr[3 * i + 1]);
-			}
-			glEnd();
-
-			// 4.draw more robots;
-			glColor3f(0.8, 0.8, 0.8);
-			int nsample = pathSize / 50;
-			{
-				int d = pathSize / nsample;
-				for (int i = 0; i < nsample; i++)
+				// 3. draw path
+				glBegin(GL_LINE_STRIP);
+				for (size_t i = 0; i < pathSize; i++)
 				{
-					int idx = d * i;
-
-					auto& robot = Models_Approx[robotIdx];
-					Point translation(pathPtr[3 * idx + 0], pathPtr[3 * idx + 1]);
-					double rotationDegree = pathPtr[3 * idx + 2];
-					for (auto& as : robot)
-						for (auto& arc : as.Arcs)
-						{
-							cd::translateArc(cd::rotateArc(arc, rotationDegree + 180.0), translation).draw();
-						}
-					glPointSize(4.0f);
-					glBegin(GL_POINTS);
-					glVertex3d(translation.P[0], translation.P[1], -0.5);
-					glEnd();
+					double ratio = (pathPtr[3 * i + 2]) / 360.0;
+					glColor3f(1 - ratio, ratio, 0);
+					glVertex2d(pathPtr[3 * i + 0], pathPtr[3 * i + 1]);
 				}
+				glEnd();
 
-				int idx = pathSize - 1;
+				// 4.draw more robots;
+				glColor3f(0.8, 0.8, 0.8);
+				int nsample = pathSize / 50;
+				if (nsample > 0)
 				{
-					auto& robot = Models_Approx[robotIdx];
-					Point translation(pathPtr[3 * idx + 0], pathPtr[3 * idx + 1]);
-					double rotationDegree = pathPtr[3 * idx + 2];
-					for (auto& as : robot)
-						for (auto& arc : as.Arcs)
-						{
-							cd::translateArc(cd::rotateArc(arc, rotationDegree + 180.0), translation).draw();
-						}
-					glPointSize(4.0f);
-					glBegin(GL_POINTS);
-					glVertex3d(translation.P[0], translation.P[1], -0.5);
-					glEnd();
+					int d = pathSize / nsample;
+					for (int i = 0; i < nsample; i++)
+					{
+						int idx = d * i;
+
+						auto& robot = Models_Approx[robotIdx];
+						Point translation(pathPtr[3 * idx + 0], pathPtr[3 * idx + 1]);
+						double rotationDegree = pathPtr[3 * idx + 2];
+						for (auto& as : robot)
+							for (auto& arc : as.Arcs)
+							{
+								cd::translateArc(cd::rotateArc(arc, rotationDegree + 180.0), translation).draw();
+							}
+						glPointSize(4.0f);
+						glBegin(GL_POINTS);
+						glVertex3d(translation.P[0], translation.P[1], -0.5);
+						glEnd();
+					}
+
+					int idx = pathSize - 1;
+					{
+						auto& robot = Models_Approx[robotIdx];
+						Point translation(pathPtr[3 * idx + 0], pathPtr[3 * idx + 1]);
+						double rotationDegree = pathPtr[3 * idx + 2];
+						for (auto& as : robot)
+							for (auto& arc : as.Arcs)
+							{
+								cd::translateArc(cd::rotateArc(arc, rotationDegree + 180.0), translation).draw();
+							}
+						glPointSize(4.0f);
+						glBegin(GL_POINTS);
+						glVertex3d(translation.P[0], translation.P[1], -0.5);
+						glEnd();
+					}
 				}
 			}
-			
 			// 5. draw robot when robot is being pressed;
-			if(clickNow)
-			if(clickStatus == 0 || clickStatus == 1)
-			{
-				if (clickStatus == 0)
-				{
-					glColor3f(1, 0, 0);
-				}
-				else
-				{
-					glColor3f(0, 0, 1);
-				}
+			if (clickNow)
+				if (clickStatus == 0 || clickStatus == 1)
+					{
+						if (clickStatus == 0)
+						{
+							glColor3f(1, 0, 0);
+						}
+						else
+						{
+							glColor3f(0, 0, 1);
+						}
 
+						auto& robot = Models_Approx[robotIdx];
+						Point translation = clickedPoint;
+						double rotationDegree = clickedZ;
+						for (auto& as : robot)
+							for (auto& arc : as.Arcs)
+							{
+								cd::translateArc(cd::rotateArc(arc, rotationDegree + 180.0), translation).draw();
+							}
+						glPointSize(4.0f);
+						glBegin(GL_POINTS);
+						glVertex3d(translation.P[0], translation.P[1], -0.5);
+						glEnd();
+					}
+
+			// 6. draw mcPath
+			if (planning::keyboardflag['2'])
+			{
+				glColor3f(0.3, 0.3, 1.0);
+				{
+					glBegin(GL_LINE_STRIP);
+					for (auto& v : mcPath)
+					{
+						glVertex2d(v.x, v.y);
+					}
+					glEnd();
+				}
+			}
+
+			// 7. draw arcPath
+			if (planning::keyboardflag['3'])
+			{
+				for (auto& arc : arcPath)
+					arc.draw2();
+			}
+
+			// 8. robot following arcPath
+			if(pathIdx < arcPathTess.size())
+			{
 				auto& robot = Models_Approx[robotIdx];
-				Point translation = clickedPoint;
-				double rotationDegree = clickedZ;
+				Point translation(arcPathTess[pathIdx].x, arcPathTess[pathIdx].y);
+				double rotationDegree = arcPathTess[pathIdx].z;
 				for (auto& as : robot)
 					for (auto& arc : as.Arcs)
 					{
@@ -1579,9 +1821,24 @@ namespace ms {
 				glVertex3d(translation.P[0], translation.P[1], -0.5);
 				glEnd();
 			}
+			// 99. camera
+			{
+				char temp;
+				
+				temp = '[';
+				if (planning::keyboardflag[temp] != planning::keyboardflag_last[temp])
+					zoom *= 0.95;
+				temp = ']';
+				if (planning::keyboardflag[temp] != planning::keyboardflag_last[temp])
+					zoom /= 0.95;
+
+			}
+
+			for (int i = 0; i < 256; i++)
+				planning::keyboardflag_last[i] = keyboardflag[i];
 
 			glutSwapBuffers();
-		};
+			};
 		auto mouseFunc = [](int button, int action, int x, int y) ->void
 		{
 
@@ -1650,7 +1907,7 @@ namespace ms {
 
 						// i. find closest v_edge
 
-						// i-1.
+						// i-1. start
 						double closestDist = 1E8;
 						Point closestPoint;
 						Point temp(sx, sy);
@@ -1675,7 +1932,7 @@ namespace ms {
 						}
 						ver0 = Vertex(closestPoint.x(), closestPoint.y(), sz);
 
-						// i-2.
+						// i-2. end point
 						closestDist = 1E8;
 						temp = Point(ex, ey);
 						// for (All ve)
@@ -1701,39 +1958,96 @@ namespace ms {
 						
 						// ii. run a-star
 						std::vector<Vertex> path = invoke_AStar(theGr, vecVertices, mapLookup, ver0, ver1);
+						
+						// path : approx biarc
+						arcPath.clear();
+						arcPathRot.clear();
+						refinePathBiarc(path, 10, arcPath, arcPathRot);
+						//dbg_out
+						{
+							for (auto a : arcPath)
+								cout << "AP : " << a.x0() << "   " << a.x1() << endl;
 
-						// iii. do refinement.
+							for (auto a : arcPath)
+								cout << "AP norm : " << a.n0() << "   " << a.n1() << endl;
+						}
+						
+						// path : tess
+						arcPathTess.clear();
+						tessPathBiarc(arcPath, arcPathRot, 0.004, arcPathTess);
+						pathSize = arcPathTess.size();
+						pathIdx = 0;
+
+						// path : 
+						tessPathAlignTheta(arcPathTess, graphSearch::testers2, Point(0, 1));
+
+						// save mcPath
+						mcPath = path;
+
 
 						{
-							//temp
-							if (maxClearPath == NULL)
-							{
-
-							}
-							else
-							{
-								delete[] pathPtr;
-							}
-
-							pathSize = path.size() + 2;
-							pathPtr = new double[(path.size()+2) * 3];
-							pathIdx = 0;
-
-							for (int i = 0; i < path.size(); i++)
-							{
-								pathPtr[3 * i + 3] = path[i].x;
-								pathPtr[3 * i + 4] = path[i].y;
-								pathPtr[3 * i + 5] = path[i].z;
-							}
-
-							pathPtr[0] = sx;
-							pathPtr[1] = sy;
-							pathPtr[2] = sz;
-							pathPtr[(path.size() + 1) * 3 + 0] = ex;
-							pathPtr[(path.size() + 1) * 3 + 1] = ey;
-							pathPtr[(path.size() + 1) * 3 + 2] = ez;
-
-
+						//// iii. do refinement.
+						//vector<Vertex> ref;
+						//refinePath(path, ref);
+						//
+						//bool refiningDone = true;
+						//if(!refiningDone)
+						//{
+						//	//temp
+						//	if (mcPath.size() == 0)
+						//	{
+						//
+						//	}
+						//	else
+						//	{
+						//		delete[] pathPtr;
+						//	}
+						//
+						//	pathSize = path.size() + 2;
+						//	pathPtr = new double[(path.size()+2) * 3];
+						//	pathIdx = 0;
+						//
+						//	for (int i = 0; i < path.size(); i++)
+						//	{
+						//		pathPtr[3 * i + 3] = path[i].x;
+						//		pathPtr[3 * i + 4] = path[i].y;
+						//		pathPtr[3 * i + 5] = path[i].z;
+						//	}
+						//
+						//	pathPtr[0] = sx;
+						//	pathPtr[1] = sy;
+						//	pathPtr[2] = sz;
+						//	pathPtr[(path.size() + 1) * 3 + 0] = ex;
+						//	pathPtr[(path.size() + 1) * 3 + 1] = ey;
+						//	pathPtr[(path.size() + 1) * 3 + 2] = ez;
+						//
+						//
+						//}
+						//else
+						//{
+						//	//temp
+						//	if (mcPath.size() == 0)
+						//	{
+						//
+						//	}
+						//	else
+						//	{
+						//		delete[] pathPtr;
+						//	}
+						//
+						//	pathSize = ref.size();
+						//	pathPtr = new double[(pathSize) * 3];
+						//	pathIdx = 0;
+						//
+						//	for (int i = 0; i < pathSize; i++)
+						//	{
+						//		pathPtr[3 * i + 0] = ref[i].x;
+						//		pathPtr[3 * i + 1] = ref[i].y;
+						//		pathPtr[3 * i + 2] = ref[i].z;
+						//	}
+						//
+						//	mcPath = path;
+						//}
 						}
 
 						clickStatus = 0;
