@@ -5,6 +5,7 @@
 #include "collision detection.hpp"
 
 using namespace std;
+extern double vbRad;
 
 namespace ms
 {
@@ -236,6 +237,14 @@ namespace graphSearch
 	{
 		int robotType = 0;
 		int obsType   = 0;
+
+		//minor stuffs with model
+		{
+			//if (obsType == 0)
+			//	vbRad = 0.7;
+			//if (obsType == 2)
+			//	ms::zoom = 3.0;
+		}
 
 		// 1. build v_edges
 		planning::_h_fmdsp_g1 = 1e-8;

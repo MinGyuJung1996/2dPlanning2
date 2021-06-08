@@ -25,6 +25,10 @@ namespace ms
 	class CircularArc;
 	class Circle;
 	class Point;
+
+	extern GLsizei wd, ht;
+	extern double zoom;
+	extern double tx, ty;
 }
 
 void

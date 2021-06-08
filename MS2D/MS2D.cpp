@@ -268,6 +268,7 @@ Date:
   2021
 	0421 : making
 */
+double vbRad = 1.3;
 void initializeRobotObstacles(int RobotIdx, int ObstaclesIdx)
 {
 	using namespace ms;
@@ -280,7 +281,6 @@ void initializeRobotObstacles(int RobotIdx, int ObstaclesIdx)
 		oriIdx = 0, // mink-sum-call idx of original robot
 		obsIdx = 7; // mink-sum-call idx of obstacles
 
-	double vbRad = 1.3;
 
 	// 0-1. Check Input
 	{
@@ -460,6 +460,10 @@ void initializeRobotObstacles(int RobotIdx, int ObstaclesIdx)
 		Point uniformTranslation;
 		switch (ObstaclesIdx)
 		{
+		case 3:
+		{
+
+		}
 		case 2:
 		{
 			sceneOriginal.push_back(CircularArc(Point(1, 1), 0.5, Point(1, 0), Point(0, 1)));
@@ -1006,6 +1010,66 @@ void tessPathAlignTheta(vector<Vertex>& pathTess, std::vector<cd::pointCollision
 				cerr << "!!!WARNING : at tessPathAlignTheta : too close at " << i << " : dist = " << sqrt((pos - closest).length2()) << endl;
 		}
 	}
+}
+
+void tessPathClear(vector<Vertex>& in_path, double in_tessLen, vector<Vertex>& out_path)
+{
+	// 0. Alias
+	auto& in = in_path;
+	auto& tl = in_tessLen;
+	auto& out = out_path;
+	using Vert = Vertex;
+
+
+	LOOP int idx = 0;
+	LOOP double segLen = 0.0; // notice this is not normalized to [0,1]
+	while (true)
+	{
+		// Alias
+		auto& v0 = in[idx];
+		auto& v1 = in[idx+1];
+		auto dv = v1 - v0;
+		auto eLen = sqrt(dv.x * dv.x + dv.y * dv.y);
+		double t = segLen / eLen;
+
+		// 1. evaluate point
+		auto v = v0 * (1 - t) + v1 * t;
+
+		// 2. push
+		out.push_back(v);
+
+		// 3. get next state (:= walk tl)
+		bool isBreak = false;
+		{
+			segLen = segLen + tl;
+
+			//check whether next arc should be used
+			double currentLen = eLen;
+			while (segLen > currentLen)
+			{
+				idx++;
+				segLen -= currentLen;
+
+				if (idx == in.size() - 1)
+				{
+					isBreak = true;
+					break;
+				}
+
+				//get next currLen
+				auto dv = in[idx + 1] - in[idx];
+				currentLen = sqrt(dv.x * dv.x + dv.y * dv.y);
+			}
+
+		}
+
+		// 6. check termination
+		if (isBreak)
+			break;
+	}
+
+	// last pt
+	out.push_back(in.back());
 }
 #pragma endregion
 

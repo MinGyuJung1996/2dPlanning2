@@ -20,6 +20,8 @@ void
 	tessPathBiarc(vector<CircularArc>& in_pathBiarc, vector<double>& in_pathBiarcRot, double in_tessLen, vector<Vertex>& out_pathTess);
 void 
 	tessPathAlignTheta(vector<Vertex>& pathTess, std::vector<cd::pointCollisionTester>& pTesters, Point forwardDir);
+void 
+	tessPathClear(vector<Vertex>& in_path, double in_tessLen, vector<Vertex>& out_path);
 
 namespace ms {
 
@@ -1400,7 +1402,9 @@ namespace ms {
 		double* pathPtr;
 		int pathSize;
 		int pathIdx = 0;
+		int pathType = 0;
 
+		vector<Vertex> pathGraphSearch;
 		vector<Vertex> mcPath;
 
 		// I/O
@@ -1799,13 +1803,16 @@ namespace ms {
 			}
 
 			// 7. draw arcPath
+			glColor3f(0, 0, 0);
 			if (planning::keyboardflag['3'])
 			{
 				for (auto& arc : arcPath)
 					arc.draw2();
 			}
 
-			// 8. robot following arcPath
+			// 8. robot following path
+			glColor3f(0, 0, 0);
+			if(pathType == 0)
 			if(pathIdx < arcPathTess.size())
 			{
 				auto& robot = Models_Approx[robotIdx];
@@ -1821,6 +1828,81 @@ namespace ms {
 				glVertex3d(translation.P[0], translation.P[1], -0.5);
 				glEnd();
 			}
+			if (pathType == 1)
+			{
+				auto& robot = Models_Approx[robotIdx];
+				Point translation(mcPath[pathIdx].x, mcPath[pathIdx].y);
+				double rotationDegree = mcPath[pathIdx].z;
+				for (auto& as : robot)
+					for (auto& arc : as.Arcs)
+					{
+						cd::translateArc(cd::rotateArc(arc, rotationDegree + 180.0), translation).draw();
+					}
+				glPointSize(4.0f);
+				glBegin(GL_POINTS);
+				glVertex3d(translation.P[0], translation.P[1], -0.5);
+				glEnd();
+
+			}
+
+			// 9. draw starting/end point
+			if (planning::keyboardflag['4'])
+			{
+				// start
+				{
+					glColor3f(1, 0.8, 0.8);
+					auto& robot = Models_Approx[robotIdx];
+					Point translation(arcPathTess.front().x, arcPathTess.front().y);
+					double rotationDegree = arcPathTess.front().z;
+					for (auto& as : robot)
+						for (auto& arc : as.Arcs)
+						{
+							cd::translateArc(cd::rotateArc(arc, rotationDegree + 180.0), translation).draw();
+						}
+					glPointSize(4.0f);
+					glBegin(GL_POINTS);
+					glVertex3d(translation.P[0], translation.P[1], -0.5);
+					glEnd();
+				}
+
+				// end
+				{
+					glColor3f(0.8, 0.8, 1);
+					auto& robot = Models_Approx[robotIdx];
+					Point translation(arcPathTess.back().x, arcPathTess.back().y);
+					double rotationDegree = arcPathTess.back().z;
+					for (auto& as : robot)
+						for (auto& arc : as.Arcs)
+						{
+							cd::translateArc(cd::rotateArc(arc, rotationDegree + 180.0), translation).draw();
+						}
+					glPointSize(4.0f);
+					glBegin(GL_POINTS);
+					glVertex3d(translation.P[0], translation.P[1], -0.5);
+					glEnd();
+				}
+			}
+
+			// 98. change mode
+			if (planning::keyboardflag['0'] != planning::keyboardflag_last['0'])
+			{
+				const int nPathType = 2;
+				pathType = (pathType + 1) % nPathType;
+				pathIdx = 0;
+
+				switch (pathType)
+				{
+				case 0:
+					pathSize = mcPath.size();
+					cout << "Biarc Path " << endl;
+					break;
+				case 1:
+					pathSize = arcPathTess.size();
+					cout << "MC Path" << endl;
+					break;
+				}
+			}
+
 			// 99. camera
 			{
 				char temp;
@@ -1982,7 +2064,8 @@ namespace ms {
 						tessPathAlignTheta(arcPathTess, graphSearch::testers2, Point(0, 1));
 
 						// save mcPath
-						mcPath = path;
+						pathGraphSearch = path;
+						tessPathClear(path, 0.004, mcPath);
 
 
 						{
