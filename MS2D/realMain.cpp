@@ -257,13 +257,18 @@ namespace graphSearch
 		planning::output_to_file::bifur_points.resize(0); // dummy
 		planning::output_to_file::bifur_points.resize(ms::numofframe); //dummy
 		planning::drawVoronoiSingleBranch = false; //disable drawing for now.
-		std::vector<decltype(ms::Model_Result)> MRs(ms::numofframe);		// data collected for checking
-		std::vector<decltype(ms::ModelInfo_Boundary)> MIBs(ms::numofframe); // data collected for checking
-		std::vector<decltype(ms::InteriorDisks_Convolution)> IDC(ms::numofframe); // save conv/disk
-		std::vector<planning::VR_IN> VRINs(ms::numofframe);
+		std::vector<decltype(ms::Model_Result)>					MRs(ms::numofframe); // data collected for checking
+		std::vector<decltype(ms::ModelInfo_Boundary)>			MIBs(ms::numofframe); // data collected for checking
+		std::vector<decltype(ms::InteriorDisks_Convolution)>	IDC(ms::numofframe); // save conv/disk
+		std::vector<planning::VR_IN>							VRINs(ms::numofframe);
+		std::vector<decltype(ms::Model_Result)>					offsetMRs(ms::numofframe);	// data collected for checking
+		std::vector<decltype(ms::ModelInfo_Boundary)>			offsetMIBs(ms::numofframe); // data collected for checking
+		std::vector<decltype(ms::InteriorDisks_Convolution)>	offsetIDC(ms::numofframe); // save conv/disk
+
 		auto mvStartTime = clock();
 		for (size_t i = 0, length = ms::numofframe /* = 360*/; i < length; i++)
 		{
+			// 1-1. minks
 			ms::t2 = i;
 			ms::minkowskisum(i, 7);
 			// save data for checking
@@ -271,6 +276,7 @@ namespace graphSearch
 			MIBs[i] = ms::ModelInfo_Boundary;
 			IDC[i] = ms::InteriorDisks_Convolution;
 
+			// 1-2. Vor
 			planning::VR_IN& vrin = VRINs[i];
 			planning::_Convert_MsOut_To_VrIn(ms::Model_Result, ms::ModelInfo_Boundary, vrin);
 			//planning::_Medial_Axis_Transformation(vrin);
@@ -286,6 +292,7 @@ namespace graphSearch
 				for (auto& b : a)
 					result.push_back(b);
 
+			// 1-3. Offset Curve;
 
 			//// dbg_out
 			//std::cout << "voronoi " << i << " "
@@ -321,6 +328,14 @@ namespace graphSearch
 		cout << "collision tester init time : " 
 			//<< ms::numofframe << " : " 
 			<< double(cdInitEndTime - cdInitStartTime) / 1000 <<"s"<< endl;
+
+		// 1-3. build offset curves.
+		{
+			for (int i = 0; i < ms::numofframe; i++)
+			{
+
+			}
+		}
 
 		///* test if result is same : print all v-edges to file and compare it*/
 		//std::ofstream fout("ve_out.txt");

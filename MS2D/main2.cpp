@@ -908,8 +908,14 @@ namespace rendering3D
 			}
 			else if (planning::keyboardflag['m'])
 			{
+
 				float g[4] = { 0,1,0,1 };
 				float g2[4] = { .7, .7, .2, 1.0 };
+				
+				glDisable(GL_LIGHTING);
+				glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+				glColor4fv(g2);
+				
 				glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, g);
 				glMaterialfv(GL_BACK, GL_AMBIENT_AND_DIFFUSE, g);
 				for (int i = 0; i<drawingSetVorIdx.size(); i++)
@@ -971,6 +977,10 @@ namespace rendering3D
 						glEnd();
 					}
 				}
+				glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+				glEnable(GL_LIGHTING);
+
+
 			}
 			{
 				using namespace planning;
@@ -1490,7 +1500,7 @@ namespace rendering3D
 
 			if (_hard_case)
 			{
-				initializeRobotObstacles(0, 0);
+				initializeRobotObstacles(2, 2);
 				int rIdx = 1;
 				int oIdx = 7;
 				robot = ms::Model_vca[rIdx];
@@ -1890,14 +1900,14 @@ namespace rendering3D
 							if (i2 < 180)
 							{
 								z0 = i2;
-								z1 = i2 + 1;
+								z1 = i2 + 360.0 / ms::numofframe;
 								z0 = z0 * PI / 180;
 								z1 = z1 * PI / 180;
 							}
 							else
 							{
 								z0 = i2 - 360;
-								z1 = i2 + 1 - 360;
+								z1 = i2 + 360.0 / ms::numofframe - 360;
 								z0 = z0 * PI / 180;
 								z1 = z1 * PI / 180;
 							}
