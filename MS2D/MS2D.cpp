@@ -1,5 +1,6 @@
 #include "voronoi.hpp"
 #include "collision detection.hpp"
+#include "AStarOnVorDiag.h"
 
 //double dbgBlock[100];
 
@@ -267,6 +268,7 @@ Date:
   2021
 	0421 : making
 */
+double vbRad = 1.3;
 void initializeRobotObstacles(int RobotIdx, int ObstaclesIdx)
 {
 	using namespace ms;
@@ -279,11 +281,12 @@ void initializeRobotObstacles(int RobotIdx, int ObstaclesIdx)
 		oriIdx = 0, // mink-sum-call idx of original robot
 		obsIdx = 7; // mink-sum-call idx of obstacles
 
+
 	// 0-1. Check Input
 	{
 		const int
-			nRobot = 2,
-			nObs = 2;
+			nRobot = 3,
+			nObs = 3;
 
 		if (RobotIdx < 0)
 			RobotIdx = 0;
@@ -364,6 +367,31 @@ void initializeRobotObstacles(int RobotIdx, int ObstaclesIdx)
 
 	}
 
+	if (RobotIdx == 2)
+	{
+		using namespace std;
+		vector<CircularArc> arcObjectSq;
+		vector<Circle>	   circObjectSq;
+		readArcModel("Objects/Square-shape-g1/arc.txt", "Objects/Square-shape-g1/circ.txt", arcObjectSq, circObjectSq);
+
+		vector<CircularArc> robot;
+		vector<Circle> robotC;
+
+		appendArcModel(robot, robotC, arcObjectSq, circObjectSq, 0.5, 0, Point(0.2, 0.2));
+
+		ms::Model_vca				[rsvIdx] = robot;
+		ms::InteriorDisks_Imported	[rsvIdx] = robotC;
+		ms::Model_from_arc			[rsvIdx] = true;
+		
+		ms::Model_vca				[oriIdx] = robot;
+		ms::InteriorDisks_Imported	[oriIdx] = robotC;
+		ms::Model_from_arc			[oriIdx] = true;
+
+		Models_Approx[rsvIdx].resize(0);
+		planning::_Convert_VectorCircularArc_To_MsInput(Model_vca[rsvIdx],
+			Models_Approx[rsvIdx]);
+	}
+
 	// 2. Obstacles
 	{
 		/*
@@ -432,6 +460,34 @@ void initializeRobotObstacles(int RobotIdx, int ObstaclesIdx)
 		Point uniformTranslation;
 		switch (ObstaclesIdx)
 		{
+		case 3:
+		{
+
+		}
+		case 2:
+		{
+			sceneOriginal.push_back(CircularArc(Point(1, 1), 0.5, Point(1, 0), Point(0, 1)));
+			sceneOriginal.push_back(CircularArc(Point(1, 1), 0.5, Point(0, 1), Point(-1, 0)));
+			sceneOriginal.push_back(CircularArc(Point(1, 1), 0.5, Point(-1, 0), Point(0, -1)));
+			sceneOriginal.push_back(CircularArc(Point(1, 1), 0.5, Point(0, -1), Point(1, 0)));
+			sceneCircles.push_back(Circle(Point(1, 1), 0.35));
+			sceneCircles.push_back(Circle(Point(1, 1), 0.4));
+			sceneCircles.push_back(Circle(Point(1, 1), 0.3));
+
+			vector<CircularArc> arcObjectSq;
+			vector<Circle>	   circObjectSq;
+			readArcModel("Objects/Square-shape-g1/arc.txt", "Objects/Square-shape-g1/circ.txt", arcObjectSq, circObjectSq);
+
+			vector<CircularArc> arcObjectTri;
+			vector<Circle>     circObjectTri;
+			readArcModel("Objects/Hex-shape-g1/arc.txt", "Objects/Hex-shape-g1/circ.txt", arcObjectTri, circObjectTri);
+
+			appendArcModel(sceneOriginal, sceneCircles, arcObjectSq, circObjectSq, 1, 0.5, Point(-1.2, -1.3));
+			appendArcModel(sceneOriginal, sceneCircles, arcObjectTri, circObjectTri, 1, -0.3, Point(+1.1, -1.5));
+
+			vbRad = 3.0;
+			break;
+		}
 		case 1:
 			// Curved maze
 //L-shape3		0.8		0		0.7			-0.8
@@ -529,14 +585,14 @@ appendArcModel(sceneOriginal,sceneCircles, arcObjectA3, circObjectA3, 0.75	,0		 
 	// set voronoiBoundary;
 	// should be properly ordered(G0-continuous)
 	{
-		double r = 2;
+		double r = vbRad;
 		CircularArc a(Point(0, 0), r, Point(+1, +0), Point(+0, +1));
 		CircularArc b(Point(0, 0), r, Point(+0, +1), Point(-1, +0));
 		CircularArc c(Point(0, 0), r, Point(-1, +0), Point(+0, -1));
 		CircularArc d(Point(0, 0), r, Point(+0, -1), Point(+1, +0));
 
 		// test
-		double l = 1.3;
+		double l = vbRad;
 		double eps = 0.01;
 		Point
 			q1(+l, +l),
@@ -625,6 +681,396 @@ namespace ms
 		return reval;
 	}
 };
+
+void tessellateLoop()
+{
+	auto tess = gluNewTess();
+
+}
+
+/*
+Def:
+	Biarc approx path in polygon
+Param:
+	in : list of vert3d
+	nBiarc: n of biarc
+	outArc: arcs (size = 2 * nBiarcs)
+	outRot: rot at each endpoints(size = outArc + 1)
+Warning:
+	nBiarc << in.size() : this is not checked
+*/
+void refinePathBiarc(vector<Vertex>& in, int nBiarc, vector<CircularArc>& outArc, vector<double>& outRot)
+{
+	if (nBiarc > 2 * in.size())
+		cerr << "!!!WARNING : in refinePathBiarc : in.size() maybe too small" << endl;
+	double recip = 1.0 / nBiarc;
+
+	//the code is quite redundant right now
+	for (int i = 0; i < nBiarc; i++)
+	{
+		// 1. get ind :  approx [ind0, ind1)
+		int ind0 = recip * i * in.size();
+		int ind1 = recip * (i + 1) * in.size();
+
+		// 2. get tan
+		Point tan0, tan1;
+		{
+			if (ind0 == 0)
+			{
+				tan0 = Point(in[1].x - in[0].x, in[1].y - in[0].y).normalize();
+			}
+			else
+			{
+				tan0 = Point(in[ind0 + 1].x - in[ind0 - 1].x, in[ind0 + 1].y - in[ind0 - 1].y).normalize();
+			}
+			if (ind1 == in.size())
+			{
+				auto temp = in[in.size() - 1] - in[in.size() - 2];
+				tan1 = Point(temp.x, temp.y).normalize();
+			}
+			else
+			{
+				auto temp = in[ind1 + 1] - in[ind1 - 1];
+				tan1 = Point(temp.x, temp.y).normalize();
+			}
+		}
+		//tan1 = -tan1;
+
+		// 3. get pos
+		Point pos0, pos1;
+		{
+			if (ind1 != in.size())
+			{
+				pos0 = Point(in[ind0].x, in[ind0].y);
+				pos1 = Point(in[ind1].x, in[ind1].y);
+			}
+			else
+			{
+				pos0 = Point(in[ind0].x, in[ind0].y);
+				pos1 = Point(in[ind1 - 1].x, in[ind1 - 1].y);
+			}
+		}
+
+		//4. do biArc approx
+		{
+			// 4-1. get circle of possible junction
+			auto line0 = bisector(pos0, pos1);
+			auto line1 = bisector(pos0+tan0, pos1+tan1);
+			Point center(line0, line1);
+			double rad = sqrt((center - pos0).length2());
+
+			// 4-2. pick junction
+			Point junc;
+			{
+				// pick the one closest to some point in the middle
+				auto ind = (ind0 + ind1) / 2;
+				auto& mid3 = in[ind];
+				Point mid2(mid3.x, mid3.y);
+				junc = center + rad * (mid2 - center).normalize();
+			}
+
+			// 4-3. do arc
+			auto arc0 = cd::constructArc(pos0, junc, tan0);
+			auto arc1 = cd::constructArc(pos1, junc, -tan1);
+			arc1 = flipArc(arc1);
+
+			// 4-4. push
+			outArc.push_back(arc0);
+			outArc.push_back(arc1);
+			outRot.push_back(in[ind0].z);
+			outRot.push_back(in[(ind0 + ind1) / 2].z);
+		}
+
+	}
+	outRot.push_back(in.back().z);
+
+}
+
+/*
+Def:
+	Given a path of circular arcs, tessellate it so that it moves uniform distance at a time
+*/
+void tessPathBiarc(vector<CircularArc>& in_pathBiarc, vector<double>& in_pathBiarcRot, double in_tessLen, vector<Vertex>& out_pathTess)
+{
+	// 0. Alias
+	auto& pb = in_pathBiarc;
+	auto& pbr = in_pathBiarcRot;
+	auto& tl = in_tessLen;
+	auto& out = out_pathTess;
+	using Vert = Vertex;
+
+	
+	LOOP int arcIdx = 0;
+	LOOP double arcLen = 0.0; // notice this is not normalized to [0,1]
+	while (true)
+	{
+		auto& arc = pb[arcIdx];
+		
+		//1. Param
+		auto param = arc.param();
+		auto theta0 = param.first;
+		auto theta1 = param.second;
+
+		//2. Pos
+		Point p;
+		double theta;
+		{
+			// get theta of point
+			double dtheta = arcLen / arc.cr();
+			theta = arc.atan0();
+			if (arc.ccw)
+				theta += dtheta;
+			else
+				theta -= dtheta;
+
+			// eval pt
+			p = arc.c.c + arc.cr() * Point(cos(theta),sin(theta));
+
+			//dbg_out
+			cout << " p : " << p << endl;
+		}
+
+		// 3. Rot
+		double Rot;
+		{
+			double t = (theta - theta0) / (theta1 - theta0);
+			Rot = (1 - t) * pbr[arcIdx] + t * pbr[arcIdx + 1];
+		}
+
+		// 4. push
+		Vert v(p.x(), p.y(), Rot);
+		out.push_back(v);
+
+		// 5. get next state
+		{
+			arcLen = arcLen + tl;
+
+			//check whether next arc should be used
+			double currentArcLen = arc.cr() * fabs(theta1 - theta0);
+			while (arcLen > currentArcLen)
+			{
+				arcIdx++;
+				arcLen -= currentArcLen;
+
+				if (arcIdx == pb.size())
+					break;
+
+				auto param = pb[arcIdx].param();
+				currentArcLen = pb[arcIdx].cr() * fabs(param.second - param.first);
+			}
+
+		}
+
+		// 6. check termination
+		if (arcIdx == pb.size())
+			break;
+	}
+
+	// last pt
+	Vert v(pb.back().x1().x(), pb.back().x1().y(), pbr.back());
+	out.push_back(v);
+
+}
+
+/*
+Def: given a path of tessellation of circArcs, change theta to have non-holonomic, with collision tester
+
+Param:
+	pathTess : the path tessellated
+	pTesters: this->[sliceNo] = point insider/outside test
+	forwardDir : forward dir at robot theta = 0.0;
+*/
+void tessPathAlignTheta(vector<Vertex>& pathTess, std::vector<cd::pointCollisionTester>& pTesters, Point forwardDir)
+{
+	for (int i = 1; i < pathTess.size()-1; i++)
+	{
+		// 1. get direction of path
+		auto dv = pathTess[i] - pathTess[i - 1];
+		Point pathDir = Point(dv.x, dv.y).normalize(); // direction of edge
+		double pathTheta; // theta when forwardDir algins with pathDir
+		{
+			Point relativeDir = pathDir;
+			double forwardTheta = atan2(forwardDir.y(), forwardDir.x());
+			relativeDir = relativeDir.rotate(-forwardTheta);
+
+			pathTheta = atan2(relativeDir.y(), relativeDir.x());
+			if (isnan(pathTheta))
+				continue;
+
+			if (pathTheta < 0.0)
+				pathTheta += PI2;
+			pathTheta = pathTheta * 180.0 / PI;
+		}
+
+		// 2. get direction of robot;
+		Point robotDir = forwardDir.rotate(pathTess[i].z / 180.0 * PI);
+
+
+		// 3. get slice no.
+		int robotSlice = pathTess[i].z / 360.0 * ms::numofframe;
+		int pathSlice = pathTheta / 360.0 * ms::numofframe; 
+
+		//dbg_out
+		if (i < 5)
+		{
+			cout << "INFOS tpat " << endl;
+			cout << robotDir << " " << robotSlice << endl;
+			cout << pathDir << " " << pathSlice << endl;
+		}
+
+		// 3.5 quick test;
+		if (robotSlice == pathSlice)
+			continue;
+
+		// 4. robotSlice should increase/decrease?
+		bool inc;
+		{
+			int temp = pathSlice;
+			while (temp < robotSlice)
+				temp += ms::numofframe;
+
+			// now temp(=pslice) > robotslice ==> if (diff>ms::numofframe/2) decrease
+			if (temp - robotSlice > ms::numofframe / 2)
+				inc = false;
+			else
+				inc = true;
+		}
+
+		// 5. make intervals to iterate; closed interval
+		vector<std::pair<int,int>> interval;
+		{
+			int type = 2 * int(inc) + int(pathSlice > robotSlice);
+			switch(type)
+			{
+			case 0: // decrease && ps < rs
+				interval.emplace_back(robotSlice, pathSlice);
+				break;
+			case 1: // dec
+				interval.emplace_back(robotSlice, 0);
+				interval.emplace_back(ms::numofframe-1, pathSlice);
+				break;
+			case 2: // increase && ps < rs
+				interval.emplace_back(robotSlice, ms::numofframe -1);
+				interval.emplace_back(0, pathSlice);
+				break;
+			case 3: // inc && ps > rs
+				interval.emplace_back(robotSlice, pathSlice);
+				break;
+			}
+		}
+
+		// 6. do loop
+		Point pos(pathTess[i].x, pathTess[i].y);
+
+		int increment = 1;
+		if (!inc)
+			increment = -1;
+		bool shouldBreak = false;
+		int bestIdx = robotSlice;
+		for (auto& interv : interval)
+		{
+			int i = interv.first;
+			int	endIdx = interv.second;
+			while (1)
+			{
+				// do collision;
+				Point closest;
+				bool isCollision = pTesters[i].testPrecise(pos, closest);
+				//double clearance = 
+
+				// if collision
+				if (isCollision)
+					shouldBreak = true;
+				else
+					bestIdx = i;
+
+				// break?
+				if (shouldBreak)
+					break;
+
+				//take care of loop variable
+				if (i == endIdx)
+					break;
+				else
+					i += increment;
+			}
+
+			if (shouldBreak)
+				break;
+		}
+
+		// 7. save data;
+		pathTess[i].z = double(bestIdx) / ms::numofframe * 360.0;
+
+		//dbg_out
+		{
+			Point closest;
+			bool isCollision = pTesters[robotSlice].testPrecise(pos, closest);
+			if (isCollision)
+				cerr << "!!!WARNING : at tessPathAlignTheta : too close at " << i << " : dist = " << sqrt((pos - closest).length2()) << endl;
+		}
+	}
+}
+
+void tessPathClear(vector<Vertex>& in_path, double in_tessLen, vector<Vertex>& out_path)
+{
+	// 0. Alias
+	auto& in = in_path;
+	auto& tl = in_tessLen;
+	auto& out = out_path;
+	using Vert = Vertex;
+
+
+	LOOP int idx = 0;
+	LOOP double segLen = 0.0; // notice this is not normalized to [0,1]
+	while (true)
+	{
+		// Alias
+		auto& v0 = in[idx];
+		auto& v1 = in[idx+1];
+		auto dv = v1 - v0;
+		auto eLen = sqrt(dv.x * dv.x + dv.y * dv.y);
+		double t = segLen / eLen;
+
+		// 1. evaluate point
+		auto v = v0 * (1 - t) + v1 * t;
+
+		// 2. push
+		out.push_back(v);
+
+		// 3. get next state (:= walk tl)
+		bool isBreak = false;
+		{
+			segLen = segLen + tl;
+
+			//check whether next arc should be used
+			double currentLen = eLen;
+			while (segLen > currentLen)
+			{
+				idx++;
+				segLen -= currentLen;
+
+				if (idx == in.size() - 1)
+				{
+					isBreak = true;
+					break;
+				}
+
+				//get next currLen
+				auto dv = in[idx + 1] - in[idx];
+				currentLen = sqrt(dv.x * dv.x + dv.y * dv.y);
+			}
+
+		}
+
+		// 6. check termination
+		if (isBreak)
+			break;
+	}
+
+	// last pt
+	out.push_back(in.back());
+}
 #pragma endregion
 
 namespace ms{
@@ -640,7 +1086,8 @@ extern double basis6[10001][7];
 
 const bool change7 = false; // change 7 model to scene-with-obstacles (6 + 7)
 const bool change0 = false; // change 0 to half size
-const bool override1 = true;
+const bool change6 = true; // change human model size
+const bool override1 = false;
 const bool override7 = true;
 std::vector<CircularArc> Model_vca[8]; // model's circularArc representation (before calling postprocessing)
 bool Model_from_arc[8];					// true: read from circular arc file // false : read from bezier				
@@ -660,6 +1107,8 @@ void initialize()
 
 	ModelInfo_CurrentModel.first  = 1; // 1
 	ModelInfo_CurrentModel.second = 7; // 6
+	ModelInfo_CurrentModel.first  = 6;
+	ModelInfo_CurrentModel.second = 7;
 	
 	
 	Models_Imported[0] = import_Crv("impt1.txt");
@@ -832,61 +1281,81 @@ void initialize()
 		}
 	}
 
+	if (change6)
+	{
+		int ind = 6;
+		Point a[4];
+		auto trans = Point(0, 0);
+		auto scale = 0.4f;
+		for (auto& i : Models_Imported[ind])
+		{
+			a[0] = scale * i.P[0] - trans;
+			a[1] = scale * i.P[1] - trans;
+			a[2] = scale * i.P[2] - trans;
+			a[3] = scale * i.P[3] - trans;
+			i = BezierCrv(a);
+		}
+		for (auto& i : InteriorDisks_Imported[ind])
+		{
+			i = (Circle(scale * i.c - trans, scale * i.r));
+		}
+	}
+
 	//~debug
 
 
 
-	//planning::output_to_file::objSize.resize(8);
+	planning::output_to_file::objSize.resize(8);
 
-	//for (int i = 0; i < 8; i++) {
-	//	for (int j = 0; j < (int)Models_Imported[i].size(); j++) {
-	//		Models_Imported[i][j].segmentation(Models[i]);
-	//	}
+	for (int i = 0; i < 8; i++) {
+		for (int j = 0; j < (int)Models_Imported[i].size(); j++) {
+			Models_Imported[i][j].segmentation(Models[i]);
+		}
 
-	//	std::cout << "hello" << std::endl;
-	//	for (int j = 0; j < (int)Models[i].size(); j++) {
-	//		auto s = Models[i][j].integrityTest();
-	//		if (s.size() > 0)
-	//			Models[i].insert(Models[i].begin() + j + 1, s.begin(), s.end());
-	//	}
+		std::cout << "hello" << std::endl;
+		for (int j = 0; j < (int)Models[i].size(); j++) {
+			auto s = Models[i][j].integrityTest();
+			if (s.size() > 0)
+				Models[i].insert(Models[i].begin() + j + 1, s.begin(), s.end());
+		}
 
-	//	std::cout << "hello" << std::endl;
-	//	for (int j = 0; j < (int)Models[i].size(); j++) {
-	//		auto tempSpiral = ArcSpline(Models[i][j]); /* where bez -> arc */
-	//		auto input = tempSpiral.integrityTest();
-	//		Models_Approx[i].insert(Models_Approx[i].end(), input.begin(), input.end());
-	//	}
+		std::cout << "hello" << std::endl;
+		for (int j = 0; j < (int)Models[i].size(); j++) {
+			auto tempSpiral = ArcSpline(Models[i][j]); /* where bez -> arc */
+			auto input = tempSpiral.integrityTest();
+			Models_Approx[i].insert(Models_Approx[i].end(), input.begin(), input.end());
+		}
 
-	//	std::cout << "hello" << std::endl;
-	//	//build planning::output_to_file::objSize;
-	//	if (i != 7)
-	//	{
-	//		int cnt = 0;
-	//		for (auto& as : Models_Approx[i])
-	//		{
-	//			cnt += as.Arcs.size();
-	//		}
-	//		planning::output_to_file::objSize[i].push_back(cnt);
-	//	}
-	//	else
-	//	{
-	//		int cnt = 0;
-	//		int a0 = Models_Imported[7].size() - Models_Imported[6].size();
-	//		for (size_t j = 0; j < a0; j++)
-	//		{
-	//			cnt += Models_Approx[i][j].Arcs.size();
-	//		}
-	//		planning::output_to_file::objSize[i].push_back(cnt);
+		std::cout << "hello" << std::endl;
+		//build planning::output_to_file::objSize;
+		if (i != 7)
+		{
+			int cnt = 0;
+			for (auto& as : Models_Approx[i])
+			{
+				cnt += as.Arcs.size();
+			}
+			planning::output_to_file::objSize[i].push_back(cnt);
+		}
+		else
+		{
+			int cnt = 0;
+			int a0 = Models_Imported[7].size() - Models_Imported[6].size();
+			for (size_t j = 0; j < a0; j++)
+			{
+				cnt += Models_Approx[i][j].Arcs.size();
+			}
+			planning::output_to_file::objSize[i].push_back(cnt);
 
-	//		cnt = 0;
-	//		for (size_t j = a0; j < Models_Imported[7].size(); j++)
-	//		{
-	//			cnt += Models_Approx[i][j].Arcs.size();
-	//		}
-	//		planning::output_to_file::objSize[i].push_back(cnt);
-	//	}
-	//	//end objSize
-	//}
+			cnt = 0;
+			for (size_t j = a0; j < Models_Imported[7].size(); j++)
+			{
+				cnt += Models_Approx[i][j].Arcs.size();
+			}
+			planning::output_to_file::objSize[i].push_back(cnt);
+		}
+		//end objSize
+	}
 
 	// tried to merge models_approx after... but seems to break
 	if (false)
@@ -1237,15 +1706,15 @@ void initialize()
 
 		Point uniformTranslation = Point(0.15, 0.05);
 
-		//appendModelToScene(arcObjectL, circObjectL, 0.3, 0, Point(-0.3, -0.3));
-		//appendModelToScene(arcObjectL, circObjectL, 0.4, 180, Point(0.3, 0.3));
-		appendModelToScene(arcObjectL3, circObjectL3, 1.3, -90, uniformTranslation + Point(-0.1, +0.1));
-		appendModelToScene(arcObjectL2, circObjectL2, 0.4, -90, uniformTranslation + Point(-0.1, +0.1));
-		appendModelToScene(arcObjectL3, circObjectL3, 1.3, +90, uniformTranslation + Point(-0.5, +0.03));
-		appendModelToScene(arcObjectL2, circObjectL2, 0.4, +90, uniformTranslation + Point(-0.5, +0.03));
-		appendModelToScene(arcObjectSq, circObjectSq, 0.8,  +0, uniformTranslation + Point(+0.07, - 0.3));
-		appendModelToScene(arcObjectSq, circObjectSq, 0.4, +55, uniformTranslation + Point(-0.53, 0.3));
-
+		
+		//appendModelToScene(arcObjectL3, circObjectL3, 1.3, -90, uniformTranslation + Point(-0.1, +0.1));
+		//appendModelToScene(arcObjectL2, circObjectL2, 0.4, -90, uniformTranslation + Point(-0.1, +0.1));
+		//appendModelToScene(arcObjectL3, circObjectL3, 1.3, +90, uniformTranslation + Point(-0.5, +0.03));
+		//appendModelToScene(arcObjectL2, circObjectL2, 0.4, +90, uniformTranslation + Point(-0.5, +0.03));
+		//appendModelToScene(arcObjectSq, circObjectSq, 0.8,  +0, uniformTranslation + Point(+0.07, - 0.3));
+		//appendModelToScene(arcObjectSq, circObjectSq, 0.4, +55, uniformTranslation + Point(-0.53, 0.3));
+		//
+		appendModelToScene(arcObjectSq, circObjectSq, 1.0, 0.0, Point(0,0));
 
 
 		// 4. build vec<AS> sceneProcessed(input to MinkSum)
@@ -1392,7 +1861,7 @@ void postProcess(int FirstModel, int SecondModel)
 			// if (this is the case where original bezier curve does not exists)
 			if (Model_from_arc[FirstModel])
 			{
-				planning::_Convert_VectorCircularArc_To_MsInput(Model_vca[FirstModel], Models_Rotated_Approx[i], i);
+				planning::_Convert_VectorCircularArc_To_MsInput(Model_vca[FirstModel], Models_Rotated_Approx[i], i * 360/ms::numofframe);
 			}
 			else
 			{
@@ -4951,10 +5420,11 @@ std::pair<CircularArc, CircularArc> CircularArc::subDiv(double t)
 */
 void CircularArc::draw()
 {
-	glBegin(GL_POINTS);
-	glVertex2dv(x[0].P);
-	glVertex2dv(x[1].P);
-	glEnd();
+	//glBegin(GL_POINTS);
+	//glVertex2dv(x[0].P);
+	//glVertex2dv(x[1].P);
+	//glEnd();
+
 	glBegin(GL_LINE_STRIP);
 	for (int i = 0; i <= RES; i++) {
 		//glColor3f((float)i / (float)RES, 1.0f - (float)i / (float)RES, 0.5f); //for testing direction

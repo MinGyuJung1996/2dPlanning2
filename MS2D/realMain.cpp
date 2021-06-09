@@ -5,6 +5,7 @@
 #include "collision detection.hpp"
 
 using namespace std;
+extern double vbRad;
 
 namespace ms
 {
@@ -32,6 +33,12 @@ namespace ms
 		decltype(planning::voronoiBoundary)& voronoiBoundary,
 		std::vector<planning::VR_IN> VRINs
 		);
+	namespace renderPathGlobal
+	{
+		extern vector<Vertex> vecVertices;
+		extern map<Vertex, int, VertexLessFn> mapLookup;
+		extern Graph theGr;
+	}
 }
 
 namespace rendering3D
@@ -205,10 +212,11 @@ int main(int argc, char *argv[]) {
 	//cout << "fake func" << endl;
 
 	//sceneEditor::main(argc, argv);	// interactive editing
-	rendering3D::main3::main3(argc, argv);	// draw 3d c-space
-	//graphSearch::main2(argc, argv);		// draw moving robot
+	//rendering3D::main3::main3(argc, argv);	// draw 3d c-space
+	graphSearch::main2(argc, argv);		// draw moving robot
 	//graphSearch::main(0, NULL);
 	//ms::main2(argc, argv); //RSV
+	//ms::main(argc, argv); // mink test
 
 	system("pause");
 }
@@ -228,7 +236,15 @@ namespace graphSearch
 	int main2(int argc, char* argv[])
 	{
 		int robotType = 0;
-		int obsType = 0;
+		int obsType   = 0;
+
+		//minor stuffs with model
+		{
+			//if (obsType == 0)
+			//	vbRad = 0.7;
+			//if (obsType == 2)
+			//	ms::zoom = 3.0;
+		}
 
 		// 1. build v_edges
 		planning::_h_fmdsp_g1 = 1e-8;
@@ -241,13 +257,18 @@ namespace graphSearch
 		planning::output_to_file::bifur_points.resize(0); // dummy
 		planning::output_to_file::bifur_points.resize(ms::numofframe); //dummy
 		planning::drawVoronoiSingleBranch = false; //disable drawing for now.
-		std::vector<decltype(ms::Model_Result)> MRs(ms::numofframe);		// data collected for checking
-		std::vector<decltype(ms::ModelInfo_Boundary)> MIBs(ms::numofframe); // data collected for checking
-		std::vector<decltype(ms::InteriorDisks_Convolution)> IDC(ms::numofframe); // save conv/disk
-		std::vector<planning::VR_IN> VRINs(ms::numofframe);
+		std::vector<decltype(ms::Model_Result)>					MRs(ms::numofframe); // data collected for checking
+		std::vector<decltype(ms::ModelInfo_Boundary)>			MIBs(ms::numofframe); // data collected for checking
+		std::vector<decltype(ms::InteriorDisks_Convolution)>	IDC(ms::numofframe); // save conv/disk
+		std::vector<planning::VR_IN>							VRINs(ms::numofframe);
+		std::vector<decltype(ms::Model_Result)>					offsetMRs(ms::numofframe);	// data collected for checking
+		std::vector<decltype(ms::ModelInfo_Boundary)>			offsetMIBs(ms::numofframe); // data collected for checking
+		std::vector<decltype(ms::InteriorDisks_Convolution)>	offsetIDC(ms::numofframe); // save conv/disk
+
 		auto mvStartTime = clock();
 		for (size_t i = 0, length = ms::numofframe /* = 360*/; i < length; i++)
 		{
+			// 1-1. minks
 			ms::t2 = i;
 			ms::minkowskisum(i, 7);
 			// save data for checking
@@ -255,6 +276,7 @@ namespace graphSearch
 			MIBs[i] = ms::ModelInfo_Boundary;
 			IDC[i] = ms::InteriorDisks_Convolution;
 
+			// 1-2. Vor
 			planning::VR_IN& vrin = VRINs[i];
 			planning::_Convert_MsOut_To_VrIn(ms::Model_Result, ms::ModelInfo_Boundary, vrin);
 			//planning::_Medial_Axis_Transformation(vrin);
@@ -270,6 +292,7 @@ namespace graphSearch
 				for (auto& b : a)
 					result.push_back(b);
 
+			// 1-3. Offset Curve;
 
 			//// dbg_out
 			//std::cout << "voronoi " << i << " "
@@ -306,6 +329,14 @@ namespace graphSearch
 			//<< ms::numofframe << " : " 
 			<< double(cdInitEndTime - cdInitStartTime) / 1000 <<"s"<< endl;
 
+		// 1-3. build offset curves.
+		{
+			for (int i = 0; i < ms::numofframe; i++)
+			{
+
+			}
+		}
+
 		///* test if result is same : print all v-edges to file and compare it*/
 		//std::ofstream fout("ve_out.txt");
 		//for (size_t i = 0, length = ms::numofframe; i < length; i++)
@@ -324,7 +355,12 @@ namespace graphSearch
 		std::vector<std::vector<v_edge>>&
 			v_edges = planning::output_to_file::v_edges;
 
-		//ms::renderMinkVoronoi(argc, argv, MRs, MIBs, v_edges, planning::voronoiBoundary);
+		if (0)
+		{
+			_h_fmdsp_g1 = 1e-3;
+			ms::renderMinkVoronoi(argc, argv, MRs, MIBs, v_edges, planning::voronoiBoundary);
+		}
+		auto gsInitStartTime = clock();
 
 		//Graph theGr = create_VorGraph(v_edges);
 		//std::vector<v_edge> path = invoke_AStar(theGr);
@@ -343,6 +379,25 @@ namespace graphSearch
 		// Set starting pt, ending pt
 		Vertex ptnSrc(-0.9, -0.1, 0.0);
 		Vertex ptnDst(+0.5, +0.4, 160.0);
+		if (obsType == 2)
+		{
+
+			// 4
+			ptnSrc = Vertex(-1.8, -1.5, 0.0);
+			ptnDst = Vertex(1.0, -1.1, 180.0);
+
+			// 3
+			//ptnSrc = Vertex(-1.8, -1.5, 0.0);
+			//ptnDst = Vertex(2.2, 1.3, 90.0);
+			
+			// 2
+			//ptnSrc = Vertex(-1.8, -1.5,  0.0);
+			//ptnDst = Vertex( 2.5, 2, 90.0); 
+			//
+			//// 1
+			//ptnSrc = Vertex(-1.8, -1.5, 0.0);
+			//ptnDst = Vertex(1.0, -1.1, 90.0);
+		}
 		if (/*robotType == 0 && */obsType == 1)
 		{
 			ptnSrc = Vertex(0.858, -1.07, 0.0);
@@ -384,6 +439,10 @@ namespace graphSearch
 		 // triplet of (path[3n+0], path[3n+1], path[3n+2]) represents a vertice in path. 
 		// vertices = ...
 
+		auto gsInitEndTime = clock();
+		cout << "graph search time : "
+			<< double(gsInitEndTime - gsInitStartTime) / 1000 << "s" << endl;
+
 		// 4~. do sth with the path....
 
 		// 4-1. Just to check whether mink/vor was constructed properly.
@@ -409,6 +468,42 @@ namespace graphSearch
 				renderedPath.push_back(v.z);
 			}
 		}
+		bool savePathAsFile = true;
+		if (savePathAsFile)
+		{
+			ofstream fout("path.txt");
+			fout << renderedPath.size() / 3 << endl;
+			for (int i = 0; i < renderedPath.size(); i += 3)
+			{
+				fout
+					<< renderedPath[i + 0] << " "
+					<< renderedPath[i + 1] << " "
+					<< renderedPath[i + 2] << endl;
+			}
+		}
+
+		// ready for renderPath
+		ms::renderPathGlobal::vecVertices = vecVertices;
+		ms::renderPathGlobal::mapLookup = mapLookup;
+		ms::renderPathGlobal::theGr = theGr;
+		{
+			for (int i = 0; i< v_edges.size(); i++)
+			{
+				auto& ves = v_edges[i];
+				for (auto& ve : ves)
+				{
+					auto& p = ve.v0;
+					if (ve.idx[0] < 0)
+						continue;
+					auto& c = VRINs[i].arcs[ve.idx[0]];
+					auto d = (p - c.c.c).length2();
+					d = sqrt(d);
+
+					ve.clr0() = fabs(d - c.cr());
+				}
+			}
+		}
+
 		ms::renderPath(argc, argv, renderedPath);
 
 		return 0;

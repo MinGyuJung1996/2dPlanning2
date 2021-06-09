@@ -25,6 +25,10 @@ namespace ms
 	class CircularArc;
 	class Circle;
 	class Point;
+
+	extern GLsizei wd, ht;
+	extern double zoom;
+	extern double tx, ty;
 }
 
 void
@@ -35,6 +39,7 @@ void
 	appendArcModel(std::vector<ms::CircularArc>& sceneOriginal, std::vector<ms::Circle>& sceneCircles, std::vector<ms::CircularArc>& arcs, std::vector<ms::Circle>& circs, double scale, double rotationDegree, ms::Point translation);
 void 
 	initializeRobotObstacles(int RobotIdx = 0, int ObstaclesIdx = 0);
+
 
 #define grid_half_size 3.25
 
@@ -375,6 +380,21 @@ namespace ms {
 		inline double atan1() { return atan2(n1().y(), n1().x()); }
 		inline bool& lccw() { return ccw; } // local-ccw, might need some caution as mink-sum part it seems like he used gccw/lccw mixed for "bool ccw"
 		inline bool& cvx() { return convex; }
+		inline std::pair<double, double> param()
+		{
+			double theta0, theta1;
+			{
+				theta0 = atan0();
+				theta1 = atan1();
+				if (lccw())
+					while (theta1 < theta0)
+						theta1 += PI2;
+				else
+					while (theta1 > theta0)
+						theta1 -= PI2;
+			}
+			return std::make_pair(theta0, theta1);
+		}
 
 	};
 

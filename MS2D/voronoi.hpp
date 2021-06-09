@@ -69,6 +69,12 @@ namespace planning
 				temp.idx[1] = idx[0];
 				return temp;
 			}
+
+			inline double& clr0() { return _clearance0; }
+			inline double& clr1() { return _clearance1; }
+		private:
+			double _clearance0 = -1.0;
+			double _clearance1 = -1.0;
 		};
 
 		struct bifur_point

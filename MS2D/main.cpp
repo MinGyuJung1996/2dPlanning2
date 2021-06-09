@@ -3,14 +3,25 @@
 #include <iomanip>
 #include "voronoi.hpp"
 #include "collision detection.hpp"
+#include "AStarOnVorDiag.h"
 
 
 planning::coneVoronoi coneVor;
 
 namespace graphSearch
 {
+	extern std::vector<cd::lineSegmentCollisionTester> testers;
 	extern std::vector<cd::pointCollisionTester> testers2;
 }
+
+void
+	refinePathBiarc(vector<Vertex>& in, int nBiarc, vector<CircularArc>& outArc, vector<double>& outRot);
+void 
+	tessPathBiarc(vector<CircularArc>& in_pathBiarc, vector<double>& in_pathBiarcRot, double in_tessLen, vector<Vertex>& out_pathTess);
+void 
+	tessPathAlignTheta(vector<Vertex>& pathTess, std::vector<cd::pointCollisionTester>& pTesters, Point forwardDir);
+void 
+	tessPathClear(vector<Vertex>& in_path, double in_tessLen, vector<Vertex>& out_path);
 
 namespace ms {
 
@@ -23,7 +34,7 @@ namespace ms {
 	/* Comments - MS2D.h Âü°í */
 
 #pragma region global variables related to time.
-	int ModelInfo_CurrentFrame = 357; // 355;//355; //148; // 44;		// 7,7,261 case
+	int ModelInfo_CurrentFrame = 64; // 355;//355; //148; // 44;		// 7,7,261 case
 	int ModelInfo_CurrentFrameOld; // due to the program structure... when we process frame i, modelInfo_CurrentFrame = i + 1...(due to pre increment in some func...) => save val.
 	//int ModelInfo_CurrentFrame = 93;			// [0, 360)
 	pair<int, int> ModelInfo_CurrentModel;	// [0, 8) x [0, 8)
@@ -261,6 +272,7 @@ namespace ms {
 		// ~debug
 		
 		// DRAW MINK
+		glLineWidth(5.0);
 		if(planning::drawMinkowski)
 		for (int i = 0; i < (int)Model_Result.size(); i++) {
 
@@ -451,7 +463,7 @@ namespace ms {
 			glPointSize(2.8f);
 
 
-			glColor3f(0.0f, 0.0f, 0.0f);
+			glColor3f(1.0f, 0.0f, 0.0f);
 			for (auto& as : Models_Approx[t1])
 			{
 				auto translation = as.init();
@@ -471,7 +483,7 @@ namespace ms {
 
 		//interest arcspline
 		//debug
-		static int interest = 0, interest2 = 0, cpressed = 0, vpressed = 0;
+		static int interest = 0, interest2 = 0, cpressed = -1, vpressed = -1;
 		{
 			if (planning::keyboardflag['c'] && !cpressed)
 			{
@@ -485,8 +497,8 @@ namespace ms {
 				vpressed = 1;
 			}
 			if (!planning::keyboardflag['v']) vpressed = 0;
-			interest = interest % Models_Rotated_Approx[ModelInfo_CurrentFrame].size();
-			interest2 = interest2 % Models_Approx[ModelInfo_CurrentModel.second].size();
+			//interest = interest % Models_Rotated_Approx[ModelInfo_CurrentFrame].size();
+			//interest2 = interest2 % Models_Approx[ModelInfo_CurrentModel.second].size();
 		}
 
 		//dbg_out 
@@ -1169,6 +1181,7 @@ namespace ms {
 		std::vector<std::vector<planning::output_to_file::v_edge>> v_edges;
 		decltype(planning::voronoiBoundary) voronoiBoundary;
 		int& sliceIdx = ms::t2;
+
 	}
 	/*
 	similar struct to main funcs
@@ -1270,7 +1283,7 @@ namespace ms {
 			for(auto& as: robot)
 				for (auto& arc : as.Arcs)
 				{
-					cd::rotateArc(arc, sliceIdx).draw();
+					cd::rotateArc(arc, sliceIdx * 360.0 / ms::numofframe).draw();
 				}
 			
 			// VIEWPORT 2 (RIGHT) : draw mink/voronoi
@@ -1282,13 +1295,14 @@ namespace ms {
 
 			// 1. draw mink
 			{
+				glColor3f(0, 0, 0);
 				size_t length = MR.size();
 				for (size_t i = 0; i < length; i++)
 				{
-					if (MIB[i])
-						glColor3f(0, 0, 0);
-					else
-						glColor3f(0, 0, 1);
+					//if (MIB[i])
+					//	glColor3f(0, 0, 0);
+					//else
+					//	glColor3f(0, 0, 1);
 
 					for (auto& as : MR[i])
 						as.draw();
@@ -1297,7 +1311,7 @@ namespace ms {
 
 			// 2. draw voronoi
 			{
-				glColor3f(1, 0, 1);
+				glColor3f(0, 0, 1);
 				glBegin(GL_LINES);
 				for (auto& ve : voronoi)
 				{
@@ -1384,9 +1398,223 @@ namespace ms {
 
 	namespace renderPathGlobal
 	{
+		// path info
 		double* pathPtr;
 		int pathSize;
 		int pathIdx = 0;
+		int pathType = 0;
+
+		vector<Vertex> pathGraphSearch;
+		vector<Vertex> mcPath;
+
+		// I/O
+		int clickStatus = 0;
+		bool clickNow = false;
+		double
+			sx, sy, sz = 0,
+			ex, ey, ez = 0;
+		double
+			clickedZ = 0.0;
+
+		// Astar
+		vector<Vertex> vecVertices;
+		map<Vertex, int, VertexLessFn> mapLookup;
+		Graph theGr;
+		Vertex ver0, ver1;
+
+		// Biarc approx
+		vector<CircularArc> arcPath;
+		vector<double> arcPathRot;
+		vector<Vertex> arcPathTess;
+
+		/*
+		Def:
+		
+		Note:
+			Does not care loop feature of theta
+		*/
+		void refinePath(vector<Vertex>& in, vector<Vertex>& out)
+		{
+			auto& lTest = graphSearch::testers;
+			auto& pTest = graphSearch::testers2;
+
+			// Naive 3d line tester
+			// Def : test 3d line
+			// return true iff collision
+			auto lTest3D = [&pTest, &lTest](Vertex& p0, Vertex& p1)
+			{
+				int sliceIdx0 = p0.z / 360.0 * ms::numofframe;
+				int sliceIdx1 = p1.z / 360.0 * ms::numofframe;
+
+				// simple case
+				if (sliceIdx0 == sliceIdx1)
+				{
+					return lTest[sliceIdx0].test(Point(p0.x, p0.y), Point(p1.x, p1.y));
+				}
+
+				double
+					x0 = p0.x,
+					y0 = p0.y,
+					z0 = p0.z,
+					dx = p1.x - p0.x,
+					dy = p1.y - p0.y,
+					dz = p1.z - p0.z;
+				dx /= dz;
+				dy /= dz;
+				dz = 1.0;
+
+				Point v0(p0.x, p0.y);
+				Point v1;
+				v1.x() = v0.x() + dx;
+				v1.y() = v0.y() + dy;
+
+				// loop
+				{
+					//ready for loop
+					int increment = 1;
+					if (sliceIdx0 > sliceIdx1)
+						increment = -1;
+
+					// just sample points and do tests
+					for (int i = sliceIdx0; i != sliceIdx1; i += increment)
+					{
+						if (lTest[i].test(v0, v1))return true;
+						if (lTest[i + increment].test(v0, v1))return true;
+
+
+						// v0, v1
+						v0 = v1;
+						v1.x() = v0.x() + dx;
+						v1.y() = v0.y() + dy;
+					}
+					
+				}
+				return false;
+			};
+
+			// 1. big refine first (rverses order)
+			vector<Vertex> temp2;
+			{
+				const int loopLimit = 7;
+
+				int sz = in.size();
+				auto temp = in;
+
+				while (temp.size() > 1)
+				{
+					int eIdx = temp.size() - 1;
+					int bIdx = 0;
+					int sampleLength = temp.size() - 1;
+
+					int sizeBefore = temp.size();
+
+					for (int i = 0; i < loopLimit; i++)
+					{
+						bIdx = eIdx - sampleLength;
+						
+						// err check
+						if (sampleLength <= 1)
+						{
+							temp2.push_back(temp[eIdx]);
+							temp.pop_back();
+							break;
+						}
+
+						if (bIdx < 0)
+						{
+							sampleLength /= 2;
+							continue;
+						}
+
+						// test
+						int testRes = lTest3D(temp[bIdx], temp[eIdx]);
+						if (testRes)
+						{
+							//when collision
+							if (i == loopLimit - 1)
+							{
+								//// last loop
+								//for (int j = eIdx; j > bIdx; j--)
+								//{
+								//	temp2.push_back(temp[j]);
+								//}
+								//temp.resize(bIdx + 1);
+								//break;
+
+								temp2.push_back(temp[eIdx]);
+								temp.pop_back();
+								break;
+							}
+							else
+							{
+								sampleLength /= 2;
+								continue;
+							}
+
+						}
+						else
+						{
+							//no collision -> reduce to a line;
+							temp2.push_back(temp[eIdx]);
+							temp.resize(bIdx + 1);
+							break;
+
+						}
+					}
+
+					int sizeAfter = temp.size();
+
+					if (sizeAfter >= sizeBefore)
+					{
+						cerr << "!!!ERR : in refinePath : size of temp did not decrease" << endl;
+						break;
+					}
+				}
+
+				for (int i = temp.size() - 1; i > -1; i--)
+				{
+					temp2.push_back(temp[i]);
+				}
+			}
+
+
+			// 99. tesselate;
+			reverse(temp2.begin(), temp2.end());
+			//dbg
+			{
+				out = temp2;
+				return;
+			}
+
+			auto& beforTess = temp2;
+			auto& afterTess = out;
+			for (int i = 0; i < temp2.size() - 1; i++)
+			{
+				const double dl = 0.01;
+
+				auto& v0 = temp2[i];
+				auto& v1 = temp2[i+1];
+				auto dv = v0 - v1;
+				auto l = dv.norm();
+				int n = l / dl;
+				if (n < 2)
+				{
+					afterTess.push_back(temp2[i]);
+				}
+				else
+				{
+					for (int j = 0; j < n; j++)
+					{
+						double t = double(j) / n;
+						double t1 = 1.0 - t;
+						auto v = v0 * t + v1 * t1;
+						afterTess.push_back(v);
+					}
+				}
+			}
+
+
+		}
 	}
 
 	void renderPath(
@@ -1466,31 +1694,470 @@ namespace ms {
 			for (auto& as : scene)
 				as.draw();
 
-			// 2. draw robot
-			auto& robot = Models_Approx[robotIdx];
-			Point translation(pathPtr[3 * pathIdx + 0], pathPtr[3 * pathIdx + 1]);
-			double rotationDegree = pathPtr[3 * pathIdx + 2];
-			for (auto& as : robot)
-				for (auto& arc : as.Arcs)
-				{
-					cd::translateArc(cd::rotateArc(arc, rotationDegree + 180.0), translation).draw();
-				}
-			glPointSize(4.0f);
-			glBegin(GL_POINTS);
-			glVertex3d(translation.P[0], translation.P[1], -0.5);
-			glEnd();
+			//// 2. draw robot
+			//auto& robot = Models_Approx[robotIdx];
+			//Point translation(pathPtr[3 * pathIdx + 0], pathPtr[3 * pathIdx + 1]);
+			//double rotationDegree = pathPtr[3 * pathIdx + 2];
+			//for (auto& as : robot)
+			//	for (auto& arc : as.Arcs)
+			//	{
+			//		cd::translateArc(cd::rotateArc(arc, rotationDegree + 180.0), translation).draw();
+			//	}
+			//glPointSize(4.0f);
+			//glBegin(GL_POINTS);
+			//glVertex3d(translation.P[0], translation.P[1], -0.5);
+			//glEnd();
 
-			// 3. draw path
-			glBegin(GL_LINE_STRIP);
-			for (size_t i = 0; i < pathSize; i++)
+			if (planning::keyboardflag['1'])
 			{
-				double ratio = (pathPtr[3 * i + 2]) / 360.0;
-				glColor3f(1 - ratio, ratio, 0);
-				glVertex2d(pathPtr[3 * i + 0], pathPtr[3 * i + 1]);
+				// 3. draw path
+				glBegin(GL_LINE_STRIP);
+				for (size_t i = 0; i < pathSize; i++)
+				{
+					double ratio = (pathPtr[3 * i + 2]) / 360.0;
+					glColor3f(1 - ratio, ratio, 0);
+					glVertex2d(pathPtr[3 * i + 0], pathPtr[3 * i + 1]);
+				}
+				glEnd();
+
+				// 4.draw more robots;
+				glColor3f(0.8, 0.8, 0.8);
+				int nsample = pathSize / 50;
+				if (nsample > 0)
+				{
+					int d = pathSize / nsample;
+					for (int i = 0; i < nsample; i++)
+					{
+						int idx = d * i;
+
+						auto& robot = Models_Approx[robotIdx];
+						Point translation(pathPtr[3 * idx + 0], pathPtr[3 * idx + 1]);
+						double rotationDegree = pathPtr[3 * idx + 2];
+						for (auto& as : robot)
+							for (auto& arc : as.Arcs)
+							{
+								cd::translateArc(cd::rotateArc(arc, rotationDegree + 180.0), translation).draw();
+							}
+						glPointSize(4.0f);
+						glBegin(GL_POINTS);
+						glVertex3d(translation.P[0], translation.P[1], -0.5);
+						glEnd();
+					}
+
+					int idx = pathSize - 1;
+					{
+						auto& robot = Models_Approx[robotIdx];
+						Point translation(pathPtr[3 * idx + 0], pathPtr[3 * idx + 1]);
+						double rotationDegree = pathPtr[3 * idx + 2];
+						for (auto& as : robot)
+							for (auto& arc : as.Arcs)
+							{
+								cd::translateArc(cd::rotateArc(arc, rotationDegree + 180.0), translation).draw();
+							}
+						glPointSize(4.0f);
+						glBegin(GL_POINTS);
+						glVertex3d(translation.P[0], translation.P[1], -0.5);
+						glEnd();
+					}
+				}
 			}
-			glEnd();
-			
+			// 5. draw robot when robot is being pressed;
+			if (clickNow)
+				if (clickStatus == 0 || clickStatus == 1)
+					{
+						if (clickStatus == 0)
+						{
+							glColor3f(1, 0, 0);
+						}
+						else
+						{
+							glColor3f(0, 0, 1);
+						}
+
+						auto& robot = Models_Approx[robotIdx];
+						Point translation = clickedPoint;
+						double rotationDegree = clickedZ;
+						for (auto& as : robot)
+							for (auto& arc : as.Arcs)
+							{
+								cd::translateArc(cd::rotateArc(arc, rotationDegree + 180.0), translation).draw();
+							}
+						glPointSize(4.0f);
+						glBegin(GL_POINTS);
+						glVertex3d(translation.P[0], translation.P[1], -0.5);
+						glEnd();
+					}
+
+			// 6. draw mcPath
+			if (planning::keyboardflag['2'])
+			{
+				glColor3f(0.3, 0.3, 1.0);
+				{
+					glBegin(GL_LINE_STRIP);
+					for (auto& v : mcPath)
+					{
+						glVertex2d(v.x, v.y);
+					}
+					glEnd();
+				}
+			}
+
+			// 7. draw arcPath
+			glColor3f(0, 0, 0);
+			if (planning::keyboardflag['3'])
+			{
+				for (auto& arc : arcPath)
+					arc.draw2();
+			}
+
+			// 8. robot following path
+			glColor3f(0, 0, 0);
+			if(pathType == 0)
+			if(pathIdx < arcPathTess.size())
+			{
+				auto& robot = Models_Approx[robotIdx];
+				Point translation(arcPathTess[pathIdx].x, arcPathTess[pathIdx].y);
+				double rotationDegree = arcPathTess[pathIdx].z;
+				for (auto& as : robot)
+					for (auto& arc : as.Arcs)
+					{
+						cd::translateArc(cd::rotateArc(arc, rotationDegree + 180.0), translation).draw();
+					}
+				glPointSize(4.0f);
+				glBegin(GL_POINTS);
+				glVertex3d(translation.P[0], translation.P[1], -0.5);
+				glEnd();
+			}
+			if (pathType == 1)
+			{
+				auto& robot = Models_Approx[robotIdx];
+				Point translation(mcPath[pathIdx].x, mcPath[pathIdx].y);
+				double rotationDegree = mcPath[pathIdx].z;
+				for (auto& as : robot)
+					for (auto& arc : as.Arcs)
+					{
+						cd::translateArc(cd::rotateArc(arc, rotationDegree + 180.0), translation).draw();
+					}
+				glPointSize(4.0f);
+				glBegin(GL_POINTS);
+				glVertex3d(translation.P[0], translation.P[1], -0.5);
+				glEnd();
+
+			}
+
+			// 9. draw starting/end point
+			if (planning::keyboardflag['4'])
+			{
+				// start
+				{
+					glColor3f(1, 0.8, 0.8);
+					auto& robot = Models_Approx[robotIdx];
+					Point translation(arcPathTess.front().x, arcPathTess.front().y);
+					double rotationDegree = arcPathTess.front().z;
+					for (auto& as : robot)
+						for (auto& arc : as.Arcs)
+						{
+							cd::translateArc(cd::rotateArc(arc, rotationDegree + 180.0), translation).draw();
+						}
+					glPointSize(4.0f);
+					glBegin(GL_POINTS);
+					glVertex3d(translation.P[0], translation.P[1], -0.5);
+					glEnd();
+				}
+
+				// end
+				{
+					glColor3f(0.8, 0.8, 1);
+					auto& robot = Models_Approx[robotIdx];
+					Point translation(arcPathTess.back().x, arcPathTess.back().y);
+					double rotationDegree = arcPathTess.back().z;
+					for (auto& as : robot)
+						for (auto& arc : as.Arcs)
+						{
+							cd::translateArc(cd::rotateArc(arc, rotationDegree + 180.0), translation).draw();
+						}
+					glPointSize(4.0f);
+					glBegin(GL_POINTS);
+					glVertex3d(translation.P[0], translation.P[1], -0.5);
+					glEnd();
+				}
+			}
+
+			// 98. change mode
+			if (planning::keyboardflag['0'] != planning::keyboardflag_last['0'])
+			{
+				const int nPathType = 2;
+				pathType = (pathType + 1) % nPathType;
+				pathIdx = 0;
+
+				switch (pathType)
+				{
+				case 0:
+					pathSize = mcPath.size();
+					cout << "Biarc Path " << endl;
+					break;
+				case 1:
+					pathSize = arcPathTess.size();
+					cout << "MC Path" << endl;
+					break;
+				}
+			}
+
+			// 99. camera
+			{
+				char temp;
+				
+				temp = '[';
+				if (planning::keyboardflag[temp] != planning::keyboardflag_last[temp])
+					zoom *= 0.95;
+				temp = ']';
+				if (planning::keyboardflag[temp] != planning::keyboardflag_last[temp])
+					zoom /= 0.95;
+
+			}
+
+			for (int i = 0; i < 256; i++)
+				planning::keyboardflag_last[i] = keyboardflag[i];
+
 			glutSwapBuffers();
+			};
+		auto mouseFunc = [](int button, int action, int x, int y) ->void
+		{
+
+			if (button == 3)
+				clickedZ += 15.0;
+
+			if (button == 4)
+				clickedZ -= 15.0;
+
+			if (button == GLUT_LEFT_BUTTON && action == GLUT_DOWN)
+			{
+				clickNow = true;
+			}
+
+			if (button == GLUT_LEFT_BUTTON && action == GLUT_UP)
+			{
+				clickNow = false;
+
+				// 1. get clicked point
+				auto fx = float(x - wd / 2) / (wd / 2);
+				auto fy = float(-y + ht / 2) / (ht / 2);
+				fx = zoom * fx + tx;
+				fy = zoom * fy + ty;
+				clickedPoint.x() = fx;
+				clickedPoint.y() = fy;
+
+				// 2.
+				switch (clickStatus)
+				{
+				case 0:
+					// set start point
+					sx = clickedPoint.x();
+					sy = clickedPoint.y();
+					sz = clickedZ;
+					clickStatus = 1;
+					cout << "Start point : " << sx << ", " << sy << ", " << sz << endl;
+					break;
+
+				case 1:
+					// set end point
+					ex = clickedPoint.x();
+					ey = clickedPoint.y();
+					ez = clickedZ;
+					clickStatus = 2;
+					cout << "End point : " << ex << ", " << ey << ", " << ez << endl;
+					break;
+
+				case 2:
+					{
+						// Alias
+						std::vector<std::vector<v_edge>>&
+							v_edges = planning::output_to_file::v_edges;
+						int szIdx = sz / 360.0 * ms::numofframe; while(szIdx < 0) szIdx += ms::numofframe; szIdx %= ms::numofframe;
+						int ezIdx = ez / 360.0 * ms::numofframe; while(ezIdx < 0) ezIdx += ms::numofframe; ezIdx %= ms::numofframe;
+						{
+							//just to make 64-bits of z value all same with that of a-star graph
+							double dz = 360.0 / v_edges.size();
+
+							sz = 0.0;
+							ez = 0.0;
+							for (int i = 0; i < szIdx; i++)
+								sz += dz;
+							for (int i = 0; i < ezIdx; i++)
+								ez += dz;
+						}
+
+						// i. find closest v_edge
+
+						// i-1. start
+						double closestDist = 1E8;
+						Point closestPoint;
+						Point temp(sx, sy);
+
+						// for (All ve)
+						for (int i = 0; i < v_edges[szIdx].size(); i++)
+						{
+							auto& ve = v_edges[szIdx][i];
+							auto& p = ve.v0;
+							auto  d = sqrt((temp - p).length2());
+							if (d < closestDist && d < ve.clr0())
+							{
+								closestDist = d;
+								closestPoint = p;
+							}
+						}
+						if (closestDist == 1E8)
+						{
+							cerr << "Invalid Input to Astar" << endl;
+							clickStatus = 0;
+							break;
+						}
+						ver0 = Vertex(closestPoint.x(), closestPoint.y(), sz);
+
+						// i-2. end point
+						closestDist = 1E8;
+						temp = Point(ex, ey);
+						// for (All ve)
+						for (int i = 0; i < v_edges[ezIdx].size(); i++)
+						{
+							auto& ve = v_edges[ezIdx][i];
+							auto& p = ve.v0;
+							auto  d = sqrt((temp - p).length2());
+							if (d < closestDist && d < ve.clr0())
+							{
+								closestDist = d;
+								closestPoint = p;
+							}
+						}
+						if (closestDist == 1E8)
+						{
+							cerr << "Invalid Input to Astar" << endl;
+							clickStatus = 0;
+							break;
+						}
+						ver1 = Vertex(closestPoint.x(), closestPoint.y(), ez);
+						
+						
+						// ii. run a-star
+						std::vector<Vertex> path = invoke_AStar(theGr, vecVertices, mapLookup, ver0, ver1);
+						
+						// path : approx biarc
+						arcPath.clear();
+						arcPathRot.clear();
+						refinePathBiarc(path, 10, arcPath, arcPathRot);
+						//dbg_out
+						{
+							for (auto a : arcPath)
+								cout << "AP : " << a.x0() << "   " << a.x1() << endl;
+
+							for (auto a : arcPath)
+								cout << "AP norm : " << a.n0() << "   " << a.n1() << endl;
+						}
+						
+						// path : tess
+						arcPathTess.clear();
+						tessPathBiarc(arcPath, arcPathRot, 0.004, arcPathTess);
+						pathSize = arcPathTess.size();
+						pathIdx = 0;
+
+						// path : 
+						tessPathAlignTheta(arcPathTess, graphSearch::testers2, Point(0, 1));
+
+						// save mcPath
+						pathGraphSearch = path;
+						tessPathClear(path, 0.004, mcPath);
+
+
+						{
+						//// iii. do refinement.
+						//vector<Vertex> ref;
+						//refinePath(path, ref);
+						//
+						//bool refiningDone = true;
+						//if(!refiningDone)
+						//{
+						//	//temp
+						//	if (mcPath.size() == 0)
+						//	{
+						//
+						//	}
+						//	else
+						//	{
+						//		delete[] pathPtr;
+						//	}
+						//
+						//	pathSize = path.size() + 2;
+						//	pathPtr = new double[(path.size()+2) * 3];
+						//	pathIdx = 0;
+						//
+						//	for (int i = 0; i < path.size(); i++)
+						//	{
+						//		pathPtr[3 * i + 3] = path[i].x;
+						//		pathPtr[3 * i + 4] = path[i].y;
+						//		pathPtr[3 * i + 5] = path[i].z;
+						//	}
+						//
+						//	pathPtr[0] = sx;
+						//	pathPtr[1] = sy;
+						//	pathPtr[2] = sz;
+						//	pathPtr[(path.size() + 1) * 3 + 0] = ex;
+						//	pathPtr[(path.size() + 1) * 3 + 1] = ey;
+						//	pathPtr[(path.size() + 1) * 3 + 2] = ez;
+						//
+						//
+						//}
+						//else
+						//{
+						//	//temp
+						//	if (mcPath.size() == 0)
+						//	{
+						//
+						//	}
+						//	else
+						//	{
+						//		delete[] pathPtr;
+						//	}
+						//
+						//	pathSize = ref.size();
+						//	pathPtr = new double[(pathSize) * 3];
+						//	pathIdx = 0;
+						//
+						//	for (int i = 0; i < pathSize; i++)
+						//	{
+						//		pathPtr[3 * i + 0] = ref[i].x;
+						//		pathPtr[3 * i + 1] = ref[i].y;
+						//		pathPtr[3 * i + 2] = ref[i].z;
+						//	}
+						//
+						//	mcPath = path;
+						//}
+						}
+
+						clickStatus = 0;
+						break;
+					}
+				default:
+					break;
+				
+				}
+
+			}
+
+			if (button == GLUT_RIGHT_BUTTON)
+			{
+				clickStatus = 0;
+			}
+
+			glutPostRedisplay();
+		};
+		auto motionFunc = [](int x, int y)
+		{
+			auto fx = float(x - wd / 2) / (wd / 2);
+			auto fy = float(-y + ht / 2) / (ht / 2);
+			fx = zoom * fx + tx;
+			fy = zoom * fy + ty;
+			clickedPoint.x() = fx;
+			clickedPoint.y() = fy;
 		};
 
 		glutInit(&argc, argv);
@@ -1499,8 +2166,9 @@ namespace ms {
 		glutCreateWindow("2D planning");
 		glutReshapeFunc(reshapeFunc);
 		glutDisplayFunc(displayFunc);
-		glutMouseFunc(mouse_callback);
+		glutMouseFunc(mouseFunc);
 		glutKeyboardFunc(keyboard_callback);
+		glutMotionFunc(motionFunc);
 		glutIdleFunc(idleFunc);
 
 		glEnable(GL_DEPTH_TEST);

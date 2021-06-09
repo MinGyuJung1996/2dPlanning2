@@ -152,7 +152,22 @@ void read_slice(vector<v_edge>&     vecVorEdges,
 		setCurrSliceIdx.insert(idxP);
 		setCurrSliceIdx.insert(idxQ);
 		vecEdges.push_back({ idxP, idxQ });
-		vecWeights.push_back(vrtxP.dist(vrtxQ));
+
+		//
+		double nonHolonomicMultiplier;
+		{
+			//1. get angle between path and robot ori
+			Point n = (vorEdge.v1 - vorEdge.v0).normalize();
+			Point robotDir = Point(0, 1); // may change with model?
+			robotDir = robotDir.rotate(zSlice*PI/180.0);
+			auto dot = n * robotDir; 
+			// options : (2 - dot) / (2-fabs(dot)) / 1 + acos(dot) / 1 + sin(acos(dot))
+			
+			nonHolonomicMultiplier = 101 - 100 * fabs(dot);
+			//nonHolonomicMultiplier = 2.0 -dot;
+		}
+
+		vecWeights.push_back(vrtxP.dist(vrtxQ) * nonHolonomicMultiplier);
 	}
 }
 //-----------------------------------------------------------------------------

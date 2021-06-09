@@ -668,6 +668,7 @@ namespace rendering3D
 		vector<std::pair<int, int>> drawingSetVorIdx;
 		vector<int> drawingSetVorIdxFrom; // lesser SliceNo that was used to form the corresponding drawingSetVorIdx;
 
+		vector<xyt> path;
 
 		void tessellateVoronoiCurvePair(int in_nSamples, vector<VoronoiEdge>& in_vec0, vector<VoronoiEdge>& in_vec1, double in_z0, double in_z1, vector<xyt>& out_vert, vector<xyt>& out_norm);
 
@@ -813,11 +814,13 @@ namespace rendering3D
 			}
 
 
+
 			// 5. drawVoronoi 3d
 			xyt camForward;
 			camForward.x() = cam.forward()[0];
 			camForward.y() = cam.forward()[1];
 			camForward.t() = cam.forward()[2];
+			static double drawableTriSize = 10.0;
 			if (planning::keyboardflag['n'])
 			{
 				float g[4] = { 0,1,0,1 };
@@ -826,11 +829,74 @@ namespace rendering3D
 				glMaterialfv(GL_BACK, GL_AMBIENT_AND_DIFFUSE, g);
 				for (auto idx : drawingSetVorIdx)
 				{
-					glBegin(GL_TRIANGLE_STRIP);
-					for (size_t i = idx.first; i < idx.second; i++)
+					//glBegin(GL_TRIANGLE_STRIP);
+					//for (size_t i = idx.first; i < idx.second; i++)
+					//{
+					//	glNormal3dv(drawingSetVorNorm[i].v3d());
+					//	glVertex3dv(drawingSetVorVert[i].v3d());
+					//
+					//	/*{
+					//		auto& norm = drawingSetVorNorm[i];
+					//		auto dot = cam.forward()
+					//	}*/
+					//}
+					//glEnd();
+					//
+					// use surface info to trim triangles
+					glBegin(GL_TRIANGLES);
+					for (size_t i = idx.first + 2; i < idx.second; i++)
 					{
-						glNormal3dv(drawingSetVorNorm[i].v3d());
-						glVertex3dv(drawingSetVorVert[i].v3d());
+						double triSize;
+						{
+							auto
+								& a = drawingSetVorVert[i - 2],
+								& b = drawingSetVorVert[i - 1],
+								& c = drawingSetVorVert[i];
+							auto ba = b - a;
+							auto ca = c - a;
+							auto cross = ba.cross(ca);
+							triSize = cross.x() * cross.x()
+								+ cross.y() * cross.y()
+								+ cross.t() * cross.t();
+
+							if (triSize > drawableTriSize)
+								continue;
+							if (fabs(cross.normalize().t()) > 0.8)
+								continue;
+						}
+
+						//set normals to always positive
+						//{
+						//	auto& n0 = drawingSetVorNorm[i-2];
+						//	auto& n1 = drawingSetVorNorm[i-1];
+						//	auto& n2 = drawingSetVorNorm[i];
+						//	auto& cf = camForward;
+						//
+						//	if (n0.dot(cf) < 0) n0 = -n0;
+						//	if (n1.dot(cf) < 0) n1 = -n1;
+						//	if (n2.dot(cf) < 0) n2 = -n2;
+						//	
+						//}
+
+						if (i % 2 == 0)
+						{
+							glNormal3dv(drawingSetVorNorm[i - 2].v3d());
+							glVertex3dv(drawingSetVorVert[i - 2].v3d());
+							glNormal3dv(drawingSetVorNorm[i - 1].v3d());
+							glVertex3dv(drawingSetVorVert[i - 1].v3d());
+							glNormal3dv(drawingSetVorNorm[i].v3d());
+							glVertex3dv(drawingSetVorVert[i].v3d());
+						}
+						else
+						{
+							glNormal3dv(drawingSetVorNorm[i - 1].v3d());
+							glVertex3dv(drawingSetVorVert[i - 1].v3d());
+							glNormal3dv(drawingSetVorNorm[i - 2].v3d());
+							glVertex3dv(drawingSetVorVert[i - 2].v3d());
+							glNormal3dv(drawingSetVorNorm[i].v3d());
+							glVertex3dv(drawingSetVorVert[i].v3d());
+						}
+
 
 						/*{
 							auto& norm = drawingSetVorNorm[i];
@@ -842,8 +908,14 @@ namespace rendering3D
 			}
 			else if (planning::keyboardflag['m'])
 			{
+
 				float g[4] = { 0,1,0,1 };
 				float g2[4] = { .7, .7, .2, 1.0 };
+				
+				glDisable(GL_LIGHTING);
+				glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+				glColor4fv(g2);
+				
 				glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, g);
 				glMaterialfv(GL_BACK, GL_AMBIENT_AND_DIFFUSE, g);
 				for (int i = 0; i<drawingSetVorIdx.size(); i++)
@@ -851,15 +923,75 @@ namespace rendering3D
 					if (drawingSetVorIdxFrom[i] == t2)
 					{
 						auto idx = drawingSetVorIdx[i];
-						glBegin(GL_TRIANGLE_STRIP);
-						for (size_t i = idx.first; i < idx.second; i++)
+						
+						//glBegin(GL_TRIANGLE_STRIP);
+						//for (size_t i = idx.first; i < idx.second; i++)
+						//{
+						//	glNormal3dv(drawingSetVorNorm[i].v3d());
+						//	glVertex3dv(drawingSetVorVert[i].v3d());
+						//}
+						//glEnd();
+
+						glBegin(GL_TRIANGLES);
+						for (size_t i = idx.first + 2; i < idx.second; i++)
 						{
-							glNormal3dv(drawingSetVorNorm[i].v3d());
-							glVertex3dv(drawingSetVorVert[i].v3d());
+							double triSize;
+							{
+								auto
+									& a = drawingSetVorVert[i - 2],
+									& b = drawingSetVorVert[i - 1],
+									& c = drawingSetVorVert[i];
+								auto ba = b - a;
+								auto ca = c - a;
+								auto cross = ba.cross(ca);
+								triSize = cross.x() * cross.x()
+									+ cross.y() * cross.y()
+									+ cross.t() * cross.t();
+
+								if (triSize > drawableTriSize)
+									continue;
+
+								if (fabs(cross.normalize().t()) > 0.8)
+									continue;
+							}
+
+							if (i % 2 == 0)
+							{
+								glNormal3dv(drawingSetVorNorm[i - 2].v3d());
+								glVertex3dv(drawingSetVorVert[i - 2].v3d());
+								glNormal3dv(drawingSetVorNorm[i - 1].v3d());
+								glVertex3dv(drawingSetVorVert[i - 1].v3d());
+								glNormal3dv(drawingSetVorNorm[i].v3d());
+								glVertex3dv(drawingSetVorVert[i].v3d());
+							}
+							else
+							{
+								glNormal3dv(drawingSetVorNorm[i - 1].v3d());
+								glVertex3dv(drawingSetVorVert[i - 1].v3d());
+								glNormal3dv(drawingSetVorNorm[i - 2].v3d());
+								glVertex3dv(drawingSetVorVert[i - 2].v3d());
+								glNormal3dv(drawingSetVorNorm[i].v3d());
+								glVertex3dv(drawingSetVorVert[i].v3d());
+							}
 						}
 						glEnd();
 					}
 				}
+				glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+				glEnable(GL_LIGHTING);
+
+
+			}
+			{
+				using namespace planning;
+				cout << "drawable tri size : " << drawableTriSize << endl;
+				char t;
+				t = '1';
+				if (keyboardflag[t] != keyboardflag_last[t])
+					drawableTriSize *= 1.1;
+				t = '3';
+				if (keyboardflag[t] != keyboardflag_last[t])
+					drawableTriSize /= 1.1;
 			}
 
 
@@ -877,10 +1009,23 @@ namespace rendering3D
 				glEnd();
 			}
 
+			// 2-6. draw path
+			if (planning::keyboardflag['/'])
+			{
+				glDisable(GL_LIGHTING);
+				glColor3f(0, 0, 1);
+				glBegin(GL_LINE_STRIP);
+				for (int i = 0; i < path.size(); i++)
+				{
+					glVertex3dv(path[i].v3d());
+				}
+				glEnd();
+			}
+
 			// 3. VIEWPORT 1
 			glViewport(wd/2, 0, wd/2, ht);
 			glScissor(wd / 2, 0, wd / 2, ht);
-			glClearColor(0.5, 1.0, 1.0, 1.0);
+			glClearColor(0.8, 1.0, 1.0, 1.0);
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 			
 			glLineWidth(2.5);
@@ -888,9 +1033,9 @@ namespace rendering3D
 			glMatrixMode(GL_PROJECTION);
 			glLoadIdentity();
 			glMatrixMode(GL_MODELVIEW);
-			static int viewLength = 4.5;
+			static double viewLength = 4.5, tx = 0, ty = 0;
 			glLoadIdentity(); 
-			gluOrtho2D(-viewLength, viewLength, -viewLength, viewLength);
+			gluOrtho2D(tx -viewLength, tx + viewLength, ty - viewLength, ty + viewLength);
 
 			//glClearColor(1.0, 1.0, 1.0, 1.0);
 			//glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -903,13 +1048,22 @@ namespace rendering3D
 
 			// 3-3. draw mink
 			//dbg
+			glColor3f(0, 0, 0);
 			int cnt = 0;
-			for (auto& loop : ms::Model_Result)
+			for (int i =0; i<ms::Model_Result.size(); i++)
+			{
+				auto& loop = ms::Model_Result[i];
+				//if (ms::ModelInfo_Boundary[i])
+				//	glColor3f(0, 0, 0);
+				//else
+				//	glColor3f(0, 0, 1);
+
 				for (auto& as : loop)
 				{
 					as.draw();
 					cnt++;
 				}
+			}
 			cout << "AS count : " << cnt << endl;
 
 			// 4. find voronoi
@@ -923,7 +1077,7 @@ namespace rendering3D
 			//dbg_out
 			cout << "input arcs.size() : " << vrin.arcs.size() << endl;
 			
-			const int vorOption = 0;
+			const int vorOption = 2;
 
 			// i. orig
 			if (vorOption == 0)
@@ -931,6 +1085,8 @@ namespace rendering3D
 			// ii. calcg()
 			if (vorOption == 1)
 			{
+				bool colorfulVoronoi = false;
+
 				//voronoiCalculator vc;
 				vc.initialize();
 				vc.setInput(vrin.arcs, vrin.left, vrin.color);
@@ -943,7 +1099,11 @@ namespace rendering3D
 				glBegin(GL_LINES);
 				for (size_t i = 0; i < vcg.E().size(); i++)
 				{
-					glColor3fv(colors + 3 * i);
+					if (colorfulVoronoi)
+						glColor3fv(colors + 3 * i);
+					else
+						glColor3f(0, 0, 1);
+
 					for (auto& ve : vcg.E()[i])
 					{
 						glVertex2dv(ve.v0.P);
@@ -952,7 +1112,7 @@ namespace rendering3D
 				}
 				glEnd();
 
-				glPointSize(6.0);
+				glPointSize(2.5);
 				glBegin(GL_POINTS);
 				for(int i = 0; i <vcg.V().size(); i++)
 				{
@@ -1031,6 +1191,51 @@ namespace rendering3D
 				}
 			}
 
+			// iv. for paper figures
+			if (vorOption == 99)
+			{
+				bool colorfulVoronoi = false;
+
+				//voronoiCalculator vc;
+				auto backup = planning::_h_fmdsp_g1;
+				planning::_h_fmdsp_g1 = 1e-8;
+				vc.initialize();
+				vc.setInput(vrin.arcs, vrin.left, vrin.color);
+				//dbg_out
+				cout << "input arcs.size() : " << vrin.arcs.size() << endl;
+				voronoiCalculatorResultG vcg;
+				vc.setOutputG(vcg);
+				vc.calculateG();
+
+				glBegin(GL_LINES);
+				for (size_t i = 0; i < vcg.E().size(); i++)
+				{
+					if (colorfulVoronoi)
+						glColor3fv(colors + 3 * i);
+					else
+						glColor3f(0, 0, 1);
+
+					for (auto& ve : vcg.E()[i])
+					{
+						glVertex2dv(ve.v0.P);
+						glVertex2dv(ve.v1.P);
+					}
+				}
+				glEnd();
+
+				glPointSize(2.5);
+				glBegin(GL_POINTS);
+				for (int i = 0; i < vcg.V().size(); i++)
+				{
+					glVertex2dv(vcg.V()[i].P);
+				}
+				glEnd();
+				glPointSize(1.0);
+
+				planning::_h_fmdsp_g1 = backup;
+			}
+
+
 			// 6. TEST input
 			if (false)
 			{
@@ -1101,6 +1306,51 @@ namespace rendering3D
 				}
 			}
 
+			// 8. draw vornoi Boudnary
+			glColor3f(0, 0, 0);
+			if(!planning::keyboardflag['7'])
+			for (auto& arc : planning::voronoiBoundary)
+			{
+				arc.draw();
+			}
+
+			// 9. 2d input
+			{
+				char t;
+				t = '+';
+				if (planning::keyboardflag[t] != planning::keyboardflag_last[t])
+					viewLength *= 0.95;
+				t = '-';
+				if (planning::keyboardflag[t] != planning::keyboardflag_last[t])
+					viewLength /= 0.95;
+				t = '6';
+				if (planning::keyboardflag[t] != planning::keyboardflag_last[t])
+					tx += 0.03 * viewLength;
+				t = '4';
+				if (planning::keyboardflag[t] != planning::keyboardflag_last[t])
+					tx -= 0.03 * viewLength;
+				t = '8';
+				if (planning::keyboardflag[t] != planning::keyboardflag_last[t])
+					ty += 0.03 * viewLength;
+				t = '5';
+				if (planning::keyboardflag[t] != planning::keyboardflag_last[t])
+					ty -= 0.03 * viewLength;
+			}
+
+			// 10. originals when flagged
+			if (planning::keyboardflag['9'])
+			{
+				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);;
+				for (auto& a : ms::Model_vca[1])
+					a.draw2();
+
+				for (auto& a : ms::Model_vca[0])
+				{
+					cd::translateArc(a, Point(-1, 0)).draw2();
+				}
+
+			}
+
 			// 97. swap
 			glScissor(0, 0, wd, ht);
 			glutSwapBuffers();
@@ -1117,7 +1367,16 @@ namespace rendering3D
 			b :			draw 3d mink
 			n :			draw 3d vor
 			m :			draw 3d vor (current time, time + 1) only
-			
+			, :			bifur line
+			. :			
+
+			2d
+			= : zoom in
+			- ; zoom out
+			7 : draw boundary;
+			9 : draw input
+			8456 : move cam
+
 			*/
 
 			// 99. set keyboardFlagOld
@@ -1128,13 +1387,55 @@ namespace rendering3D
 		int main3(int argc, char* argv[])
 		{
 			const int
-				_10_bifur		= false,
-				_11_bifur_pair	= false,
-				_12_vor2d		= false,
-				_13_vor3d		= false;
+				_10_bifur		= true,
+				_11_bifur_pair	= true,
+				_12_vor2d		= true,
+				_13_vor3d		= true;
 
 			const int
 				_hard_case = true;
+
+			//planning::_h_fmdsp_g1 = 1e-2;
+			//ms::numofframe = 3600;
+
+			// 0. no anti-aliasing
+			{
+				glDisable(GL_DITHER);
+				glDisable(GL_POINT_SMOOTH);
+				glDisable(GL_LINE_SMOOTH);
+				glDisable(GL_POLYGON_SMOOTH);
+				glHint(GL_POINT_SMOOTH, GL_DONT_CARE);
+				glHint(GL_LINE_SMOOTH, GL_DONT_CARE);
+				glHint(GL_POLYGON_SMOOTH_HINT, GL_DONT_CARE);
+				#define GL_MULTISAMPLE_ARB 0x809D
+				glDisable(GL_MULTISAMPLE_ARB);
+
+				glHint(GL_POINT_SMOOTH_HINT, GL_FASTEST);
+				glDisable(GL_POINT_SMOOTH);
+				glDisable(GL_BLEND);
+				glDisable(GL_DITHER);
+				glDisable(GL_FOG);
+				glDisable(GL_LIGHTING);
+				glDisable(GL_TEXTURE_1D);
+				glDisable(GL_TEXTURE_2D);
+				//glDisable(GL_TEXTURE_3D);
+				glShadeModel(GL_FLAT);
+				//glDisable(GL_MULTISAMPLE);
+			}
+
+			// 0.5 read path to draw;
+			{
+				ifstream fin("pathFound.txt");
+				int sz;
+				fin >> sz;
+
+				for (int i = 0; i < sz; i++)
+				{
+					double x, y, t;
+					fin >> x >> y >> t;
+					path.push_back(xyt(x, y, (t-180)/180 * PI));
+				}
+			}
 
 			// 1. basic stuff
 			wd = 1600;
@@ -1199,7 +1500,7 @@ namespace rendering3D
 
 			if (_hard_case)
 			{
-				initializeRobotObstacles(1, 0);
+				initializeRobotObstacles(2, 2);
 				int rIdx = 1;
 				int oIdx = 7;
 				robot = ms::Model_vca[rIdx];
@@ -1220,6 +1521,10 @@ namespace rendering3D
 
 				cam.modelMat[10] = z;
 
+			}
+			else
+			{
+				cam.modelMat[10] = 0.5;
 			}
 
 			// 3. use calc
@@ -1248,7 +1553,7 @@ namespace rendering3D
 			ms::Model_from_arc[0] = true;
 		
 			planning::_Convert_VectorCircularArc_To_MsInput(obs, ms::Models_Approx[1]);
-			//ms::Model_vca[1] = obs;
+			ms::Model_vca[1] = obs;
 			ms::InteriorDisks_Imported[1] = obsC;
 			ms::Model_from_arc[1] = true;
 
@@ -1259,6 +1564,7 @@ namespace rendering3D
 			// ms::minkowskisum(180, 1);
 
 			// 8. set voronoiBoundary
+			if(!_hard_case)
 			{
 
 				double l = 4.0;
@@ -1336,20 +1642,21 @@ namespace rendering3D
 
 
 					// compare size
+					double i2 = i * 360.0 / ms::numofframe;
 					if (bifurPts[i].size() > bifurPts[iNext].size())
 					{
 						smaller = bifurPts[iNext];
 						bigger = bifurPts[i];
 
-						if (i > 180)
+						if (i2 > 180)
 						{
-							biggerZ = double(i - 360) / 360.0 * PI2;
-							smallerZ = double(i - 359) / 360.0 * PI2;
+							biggerZ  = double(i2 - 360) / 360.0 * PI2;
+							smallerZ = double(i2 - 359) / 360.0 * PI2;
 						}
 						else
 						{
-							biggerZ = double(i) / 360.0 * PI2;
-							smallerZ = double(i +1) / 360.0 * PI2;
+							biggerZ  = double(i2) / 360.0 * PI2;
+							smallerZ = double(i2 +1) / 360.0 * PI2;
 						}
 					}
 					else
@@ -1357,15 +1664,15 @@ namespace rendering3D
 						smaller = bifurPts[i];
 						bigger = bifurPts[iNext];
 
-						if (i > 180)
+						if (i2 > 180)
 						{
-							biggerZ = double(i - 359) / 360.0 * PI2;
-							smallerZ = double(i - 360) / 360.0 * PI2;
+							biggerZ  = double(i2 - 359) / 360.0 * PI2;
+							smallerZ = double(i2 - 360) / 360.0 * PI2;
 						}
 						else
 						{
-							biggerZ = double(i + 1) / 360.0 * PI2;
-							smallerZ = double(i ) / 360.0 * PI2;
+							biggerZ  = double(i2 + 1) / 360.0 * PI2;
+							smallerZ = double(i2 ) / 360.0 * PI2;
 						}
 					}
 
@@ -1384,8 +1691,8 @@ namespace rendering3D
 							}
 						}
 
-						xyt big(bigger[j].x(), bigger[j].y(), biggerZ);
-						xyt sml(smaller[minIdx].x(), smaller[minIdx].y(), smallerZ);
+						xyt big(bigger[j].x(),		bigger[j].y(),		biggerZ );
+						xyt sml(smaller[minIdx].x(), smaller[minIdx].y(), smallerZ );
 
 						if (big.t() < sml.t())
 						{
@@ -1433,6 +1740,66 @@ namespace rendering3D
 					vc.setInput(vrin.arcs, vrin.left, vrin.color);
 					vc.setOutputG(vcg);
 					vc.calculateG();
+
+					//dbg  :: check erroneous edge
+					{
+						auto& E = vcg.E();
+						auto& V = vcg.V();
+						for (int i =0; i < E.size(); i++)
+						{
+							auto& e = E[i];
+							if (e.size() == 0)
+								continue;
+							if (e.front().v0.length2() > 10)
+							{
+								auto& e2v = vcg.E2V()[i];
+								auto& v2e0 = vcg.V2E()[e2v.first][e2v.second];
+								auto& v2e1 = vcg.V2E()[e2v.second][e2v.first];
+								auto wrongVert = e2v.first;
+
+								// v2e
+								v2e0 = -1;
+								v2e1 = -1;
+								
+								//v
+								V[wrongVert] = Point(0, 0);
+								
+								//e2v
+								e2v.first = wrongVert;
+								e2v.second = wrongVert;
+
+								// e
+								e.resize(0);
+								continue;
+							}
+
+							if (e.back().v1.length2() > 10)
+							{
+								auto& e2v = vcg.E2V()[i];
+								auto& v2e0 = vcg.V2E()[e2v.first][e2v.second];
+								auto& v2e1 = vcg.V2E()[e2v.second][e2v.first];
+								auto wrongVert = e2v.second;
+
+								// v2e
+								v2e0 = -1;
+								v2e1 = -1;
+
+								//v
+								V[wrongVert] = Point(0, 0);
+
+								//e2v
+								e2v.first = wrongVert;
+								e2v.second = wrongVert;
+
+								// e
+								e.resize(0);
+								continue;
+							}
+						}
+						for (auto& v : V)
+						{
+						}
+					}
 				}
 			} 
 
@@ -1477,7 +1844,7 @@ namespace rendering3D
 						{
 						dbg //dbg_out
 							double max = -1;
-							for (size_t i = 0; i < edge.size() - 1; i++)
+							for (int i = 0; i < int(edge.size()) - 1; i++)
 							{
 								// just in case : note that i has two scopes
 								auto& p0 = edge[i].v1;
@@ -1493,7 +1860,22 @@ namespace rendering3D
 						}
 
 						// 13-3-1. examine edge's endpoint's projection (find pair)
-						auto pair = vcgr1.findVoronoiCurvePair(edge.front(), edge.back(), interSlicePointError);
+						/*dbg*/if (edge.size() == 0)
+						{
+							continue;
+						}
+						vector<planning::output_to_file::v_edge> pair;
+						try {
+							pair = vcgr1.findVoronoiCurvePair(edge.front(), edge.back(), interSlicePointError);
+						}
+						catch (...)
+						{
+							continue;
+						};
+						/*dbg*/if (pair.size() == 0)
+						{
+							continue;
+						}
 						
 						// 13-3-2. form samples; // Just pick vEdge endpoints for now.
 						int ns = nSamples;
@@ -1514,17 +1896,18 @@ namespace rendering3D
 						// 13-3-3 find out z coord
 						double z0, z1;
 						{
-							if (i < 180)
+							double i2 = i * 360.0 / ms::numofframe;
+							if (i2 < 180)
 							{
-								z0 = i;
-								z1 = i + 1;
+								z0 = i2;
+								z1 = i2 + 360.0 / ms::numofframe;
 								z0 = z0 * PI / 180;
 								z1 = z1 * PI / 180;
 							}
 							else
 							{
-								z0 = i - 360;
-								z1 = i + 1 - 360;
+								z0 = i2 - 360;
+								z1 = i2 + 360.0 / ms::numofframe - 360;
 								z0 = z0 * PI / 180;
 								z1 = z1 * PI / 180;
 							}

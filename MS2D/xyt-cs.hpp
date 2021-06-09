@@ -82,6 +82,10 @@ public:
 		double l = sqrt(_x * _x + _y * _y + _t * _t);
 		return xyt(_x / l, _y / l, _t / l);
 	}
+	inline double dot(xyt& rhs)
+	{
+		return x() * rhs.x() + y() * rhs.y() + t() * rhs.t();
+	}
 
 
 private:
