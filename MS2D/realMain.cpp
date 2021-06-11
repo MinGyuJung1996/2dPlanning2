@@ -330,12 +330,462 @@ namespace graphSearch
 			<< double(cdInitEndTime - cdInitStartTime) / 1000 <<"s"<< endl;
 
 		// 1-3. build offset curves.
-		{
-			for (int i = 0; i < ms::numofframe; i++)
-			{
+		auto offsetStartTime = clock();
+		
+		//// mink sum approach
+		//{
+		//	// use 2 for offsetCircle idx;
+		//	int cirIdx = 2;
+		//	double offsetRadius = 0.1;
+		//	{
+		//		// disk
+		//		vector<Circle> interiorDisk;
+		//		Circle c = Circle(Point(0, 0), offsetRadius * 0.9);
+		//		interiorDisk.push_back(c);
+		//
+		//		// vca
+		//		vector<CircularArc> vca;
+		//		double eps = 1e-6;
+		//		CircularArc c0 = cd::constructArc(Point(0, 0), offsetRadius, 0  + eps, PI  -eps);
+		//		CircularArc c1 = cd::constructArc(Point(0, 0), offsetRadius, PI + eps, PI2 -eps);
+		//		vca.push_back(c0);
+		//		vca.push_back(c1);
+		//		
+		//		// vas
+		//		vector<ArcSpline> vas;
+		//		planning::_Convert_VectorCircularArc_To_MsInput(vca, vas, 0.0);
+		//
+		//		// Assign
+		//		ms::Models_Approx			[cirIdx] = vas;
+		//		ms::InteriorDisks_Imported	[cirIdx] = interiorDisk;
+		//		ms::Model_vca				[cirIdx] = vca;
+		//		ms::Model_from_arc			[cirIdx] = true;
+		//	}
+		//
+		//	// set model;
+		//	for (int i = 0; i< ms::numofframe; i++)
+		//	{
+		//		ms::InteriorDisks_Rotated[i] = IDC[i];
+		//
+		//		ms::Models_Rotated_Approx[i].clear();
+		//		vector<CircularArc> vca = VRINs[i].arcs;
+		//		auto size = vca.size() - voronoiBoundary.size();
+		//		vca.resize(size);
+		//		_Convert_VectorCircularArc_To_MsInput(vca, ms::Models_Rotated_Approx[i], 0.0);
+		//
+		//		//for (auto& loop : MRs[i])
+		//		//for (auto& as: loop)
+		//		//{
+		//		//	ms::Models_Rotated_Approx[i].push_back(as);
+		//		//}
+		//	}
+		//
+		//	// do mink and save
+		//	for (int i = 0; i < ms::numofframe; i++)
+		//	{
+		//		//use 3 and 4 here;
+		//		minkowskisum(i, cirIdx);
+		//
+		//
+		//		offsetMRs	[i] = ms::Model_Result;
+		//		offsetMIBs	[i] = ms::ModelInfo_Boundary;
+		//		offsetIDC	[i] = ms::InteriorDisks_Convolution;
+		//	}
+		//}
 
+		// voronoi approach : use clearance info.
+		/* for each voronoi, 6 edges are added
+			VEdge : v0-v1 is given.
+			Construct 4 vertices: 
+				v00 : offset v0 toward arc0, with (its_clearance - minimumClearance)
+				v01 : offset v0 toward arc1, with (its_clearance - minimumClearance)
+				v10 : offset v1 toward arc0, with (its_clearance - minimumClearance)
+				v11 : offset v1 toward arc1, with (its_clearance - minimumClearance)
+			construct 6 edges:
+			v00 - v0 - v01
+			 |          |
+			v10 - v1 - v11
+			
+			WARNING!!!:
+				(v00, v10) or (v01, v11) might have intersection with csobs if minClr is small.
+				(+) line seg connecting start and closest-vor-pt might also have intersection.
+		*/
+		using lseg = v_edge;
+		vector<vector<lseg>> offCso(ms::numofframe); // Def: offset config-space-obs; offCso[sliceNo][segIdx]
+		vector<vector<lseg>> offCon(ms::numofframe); // def: offset connector(to voronoi)
+		{
+			auto& vess = planning::output_to_file::v_edges;
+			double minClr = 0.01; // minimum clearance.
+			// for (each slice)
+			for (int sn = 0; sn < ms::numofframe; sn++) // sn := sliceNo
+			{
+				auto& ves = vess[sn];
+				set<Point> inserted;
+				set<int> boundaryCase;
+
+				// for (each ve)
+				for  (int i = 0; i < ves.size(); i++)
+				{
+					auto& ve = ves[i];
+
+					// alias
+					auto& v0 = ve.v0;
+					auto& v1 = ve.v1;
+					auto& arc0 = VRINs[sn].arcs[ve.idx[0]];
+					auto& arc1 = VRINs[sn].arcs[ve.idx[1]];
+					
+					// get direction and clearance
+					auto dir00 = arc0.cc() - v0;
+					auto dir01 = arc1.cc() - v0;
+					auto dir10 = arc0.cc() - v1;
+					auto dir11 = arc1.cc() - v1;
+
+					auto dist00 = dir00.length1();
+					auto dist01 = dir01.length1();
+					auto dist10 = dir10.length1();
+					auto dist11 = dir11.length1();
+
+					// if (arc = concave) flip direction
+					if (dist00 < arc0.cr()) 
+					{
+						dir00 = -dir00;
+						dir10 = -dir10;
+					}
+					if (dist01 < arc1.cr())
+					{
+						dir01 = -dir01;
+						dir11 = -dir11;
+					}
+
+					// check No. of valid endpoints
+					int nValid = 2;
+					auto& clr0 = ve.clr0();
+					clr0 = fabs(dist00 - arc0.cr());
+					if (clr0 < minClr) nValid--;
+					auto& clr1 = ve.clr1();
+					clr1 = fabs(dist11 - arc1.cr());
+					if (clr1 < minClr) nValid--;
+
+					// if both endpoints are valid => we are good to go.
+					// else take care
+					if (nValid == 0)
+						continue;
+					else if (nValid == 1)
+					{
+						// take care of it later
+						boundaryCase.insert(i);
+						continue;
+					}
+
+					// normalize
+					dir00 = dir00 / dist00;
+					dir01 = dir01 / dist01;
+					dir10 = dir10 / dist10;
+					dir11 = dir11 / dist11;
+
+					// get vXX
+					auto v00 = v0 + (clr0 - minClr) * dir00;
+					auto v01 = v0 + (clr0 - minClr) * dir01;
+					auto v10 = v1 + (clr1 - minClr) * dir10;
+					auto v11 = v1 + (clr1 - minClr) * dir11;
+
+					//if (clr0 - minClr < 0 || clr1 - minClr < 0)
+					//	cerr << "!!!!!!!!!!!!!!!!ERR : Direction changed" << endl;
+
+					// offset
+					lseg off0;
+					off0.v0 = v00;
+					off0.v1 = v10;
+
+					lseg off1;
+					off1.v0 = v01;
+					off1.v1 = v11;
+
+					offCso[sn].push_back(off0);
+					offCso[sn].push_back(off1);
+
+					// conn
+					if (inserted.find(v0) != inserted.end())
+					{
+						lseg con00;
+						con00.v0 = v0;
+						con00.v1 = v00;
+
+						lseg con01;
+						con01.v0 = v0;
+						con01.v1 = v01;
+
+						offCon[sn].push_back(con00);
+						offCon[sn].push_back(con01);
+
+						
+					}
+					if (inserted.find(v1) != inserted.end())
+					{
+						lseg con10;
+						con10.v0 = v1;
+						con10.v1 = v10;
+
+						lseg con11;
+						con11.v0 = v1;
+						con11.v1 = v11;
+
+						offCon[sn].push_back(con10);
+						offCon[sn].push_back(con11);
+					}
+
+					// insert those who are done
+					inserted.insert(v0);
+					inserted.insert(v1);
+
+					//dbg_out
+					if (false && sn == 0)
+					{
+						Point err(-1.04205, -0.392571);
+						auto a = (v00 - err).length1();
+						auto b = (v01 - err).length1();
+						auto c = (v10 - err).length1();
+						auto d = (v11 - err).length1();
+						if (a < 1e-2 || b < 1e-2 || c < 1e-2 || d < 1e-2)
+						{
+							cout 
+								<< "len :" << endl
+								<< a << endl
+								<< b << endl
+								<< c << endl
+								<< d << endl;
+							cout
+								<< "ver : " << endl
+								<< ve.v0 << endl
+								<< ve.v1 << endl;
+							cout 
+								<< "arc : " << endl
+								<< arc0 << endl
+								<< arc1 << endl;
+							cout
+								<< "RES: " << endl
+								<< v00 << endl
+								<< v01 << endl
+								<< v10 << endl
+								<< v11 << endl
+								<< "DIR: " << endl
+								<< dir00 << endl
+								<< dir01 << endl
+								<< dir10 << endl
+								<< dir11 << endl
+								<< "clr: " << endl
+								<< clr0 << endl
+								<< clr1 << endl;
+						}
+					}
+				}
+
+				// for (those only that have a single valid endpoint)
+				for (auto i : boundaryCase)
+				{
+					auto& ve = ves[i];
+
+					// alias
+					auto& v0 = ve.v0;
+					auto& v1 = ve.v1;
+					auto& arc0 = VRINs[sn].arcs[ve.idx[0]];
+					auto& arc1 = VRINs[sn].arcs[ve.idx[1]];
+
+					// get direction and clearance
+					auto dir00 = arc0.cc() - v0;
+					auto dir01 = arc1.cc() - v0;
+					auto dir10 = arc0.cc() - v1;
+					auto dir11 = arc1.cc() - v1;
+
+					auto dist00 = dir00.length1();
+					auto dist01 = dir01.length1();
+					auto dist10 = dir10.length1();
+					auto dist11 = dir11.length1();
+
+					// if (arc = concave) flip direction
+
+					// This part is different from above, as clearance = 0 can be erroneous for this case
+					if (dist00 < arc0.cr())
+						dir00 = -dir00;
+					if (dist10 < arc0.cr())
+						dir10 = -dir10;
+
+					if (dist01 < arc1.cr())
+						dir01 = -dir01;
+					if (dist11 < arc1.cr())
+						dir11 = -dir11;
+
+					// find clearance
+					auto& clr0 = ve.clr0();
+					clr0 = fabs(dist00 - arc0.cr());
+					auto& clr1 = ve.clr1();
+					clr1 = fabs(dist11 - arc1.cr());
+
+					// we know that one of the clearnace is below min and one is over min.
+					double t = (minClr - clr0) / (clr1 - clr0);
+					double t1 = 1 - t;
+
+					// Assume: chage of clr is linear in small line seg
+					Point vNew = t1 * v0 + t * v1;
+
+					// normalize
+					dir00 = dir00 / dist00;
+					dir01 = dir01 / dist01;
+					dir10 = dir10 / dist10;
+					dir11 = dir11 / dist11;
+
+					// get vXX
+
+					auto v00 = v0 + (clr0 - minClr) * dir00;
+					auto v01 = v0 + (clr0 - minClr) * dir01;
+					auto v10 = v1 + (clr1 - minClr) * dir10;
+					auto v11 = v1 + (clr1 - minClr) * dir11;
+
+					// offset : changes with which vert has larger clr
+					bool v0larger = clr0 > clr1;
+
+					lseg off0;
+					lseg off1;
+					if (v0larger)
+					{
+						off0.v0 = v00;
+						off0.v1 = vNew;
+						off1.v0 = v01;
+						off1.v1 = vNew;
+					}
+					else
+					{
+						off0.v0 = vNew;
+						off0.v1 = v10;
+						off1.v0 = vNew;
+						off1.v1 = v11;
+					}
+					
+					offCso[sn].push_back(off0);
+					offCso[sn].push_back(off1);
+
+					// conn
+					if (v0larger && (inserted.find(v0) != inserted.end()))
+					{
+						lseg con00;
+						con00.v0 = v0;
+						con00.v1 = v00;
+
+						lseg con01;
+						con01.v0 = v0;
+						con01.v1 = v01;
+
+						offCon[sn].push_back(con00);
+						offCon[sn].push_back(con01);
+
+
+					}
+					if (!v0larger && (inserted.find(v1) != inserted.end()))
+					{
+						lseg con10;
+						con10.v0 = v1;
+						con10.v1 = v10;
+
+						lseg con11;
+						con11.v0 = v1;
+						con11.v1 = v11;
+
+						offCon[sn].push_back(con10);
+						offCon[sn].push_back(con11);
+					}
+
+					// insert those who are done
+					inserted.insert(v0);
+					inserted.insert(v1);
+
+					//dbg_out : problem was aobut
+					if (false && sn == 0)
+					{
+						Point err(-1.04205, -0.392571);
+						auto a = (v00 - err).length1();
+						auto b = (v01 - err).length1();
+						auto c = (v10 - err).length1();
+						auto d = (v11 - err).length1();
+						if (a < 1e-2 || b < 1e-2 || c < 1e-2 || d < 1e-2)
+						{
+							cout
+								<< "len :" << endl
+								<< a << endl
+								<< b << endl
+								<< c << endl
+								<< d << endl;
+							cout
+								<< "ver : " << endl
+								<< ve.v0 << endl
+								<< ve.v1 << endl;
+							cout
+								<< "arc : " << endl
+								<< arc0 << endl << arc0.ccw << endl
+								<< arc1 << endl << arc1.ccw << endl;
+							cout
+								<< "RES: " << endl
+								<< v00 << endl
+								<< v01 << endl
+								<< v10 << endl
+								<< v11 << endl
+								<< "DIR: " << endl
+								<< dir00 << endl
+								<< dir01 << endl
+								<< dir10 << endl
+								<< dir11 << endl
+								<< "clr: " << endl
+								<< clr0 << endl
+								<< clr1 << endl;
+							cout 
+								<< "clr: " << endl
+								<< dist00 - arc0.cr() << endl
+								<< dist01 - arc1.cr() << endl
+								<< dist10 - arc0.cr() << endl
+								<< dist11 - arc1.cr() << endl;
+							cout
+								<< "v1 : " << v1 << endl
+								<< "dir11 : " << dir11 << endl
+								<< "cl1 : " << clr1 << endl
+								<< "minClr: " << minClr << endl
+								<< "dir11* a:" << (clr1 - minClr) * dir11 << endl
+								<< "v11 : " << v1 + (clr1 - minClr) * dir11 << endl;
+
+							auto norm0 = arc0.x1() - arc0.cc();
+							auto norm1 = arc1.x0() - arc1.cc();
+							auto t0 = std::atan2(norm0.y(), norm0.x());
+							auto t1 = std::atan2(norm1.y(), norm1.x());
+
+
+							cout << "t0 : " << t0 << endl
+								<< "t1 : " << t1 << endl;
+
+							cout << "sn : " << sn << endl
+								<< "i : " << i << endl;
+							
+							//offCso[sn].pop_back();
+							//offCso[sn].pop_back();
+						}
+					}
+
+				}
 			}
 		}
+
+		// WARNING:
+		// simply add offset to vorEdges
+		{
+			auto& ves = planning::output_to_file::v_edges;
+			for (int i = 0; i < ms::numofframe; i++)
+			{
+				//ves[i].clear();
+				ves[i].insert(ves[i].end(), offCon[i].begin(), offCon[i].end());
+				ves[i].insert(ves[i].end(), offCso[i].begin(), offCso[i].end());
+			}
+		}
+
+		auto offsetEndTime = clock();
+		cout << "Offset init time : "
+			<< double(offsetEndTime - offsetStartTime) / 1000 << "s" << endl;
 
 		///* test if result is same : print all v-edges to file and compare it*/
 		//std::ofstream fout("ve_out.txt");
@@ -359,6 +809,7 @@ namespace graphSearch
 		{
 			_h_fmdsp_g1 = 1e-3;
 			ms::renderMinkVoronoi(argc, argv, MRs, MIBs, v_edges, planning::voronoiBoundary);
+			//ms::renderMinkVoronoi(argc, argv, offsetMRs, offsetMIBs, v_edges, planning::voronoiBoundary);
 		}
 		auto gsInitStartTime = clock();
 
@@ -431,7 +882,15 @@ namespace graphSearch
 			ptnDst = dst;
 		}
 
+		auto gsInitEndTime = clock();
+		cout << "slice connection time : "
+			<< double(gsInitEndTime - gsInitStartTime) / 1000 << "s" << endl;
+
+		auto iaStart = clock();
 		std::vector<Vertex> path = invoke_AStar(theGr, vecVertices, mapLookup, ptnSrc, ptnDst);
+		auto iaEnd = clock();
+		cout << "A-star time : "
+			<< double(iaEnd - iaStart) / 1000 << "s" << endl;
 
 		//std::cout << path.size() << std::endl;
 
@@ -439,9 +898,6 @@ namespace graphSearch
 		 // triplet of (path[3n+0], path[3n+1], path[3n+2]) represents a vertice in path. 
 		// vertices = ...
 
-		auto gsInitEndTime = clock();
-		cout << "graph search time : "
-			<< double(gsInitEndTime - gsInitStartTime) / 1000 << "s" << endl;
 
 		// 4~. do sth with the path....
 
@@ -486,23 +942,24 @@ namespace graphSearch
 		ms::renderPathGlobal::vecVertices = vecVertices;
 		ms::renderPathGlobal::mapLookup = mapLookup;
 		ms::renderPathGlobal::theGr = theGr;
-		{
-			for (int i = 0; i< v_edges.size(); i++)
-			{
-				auto& ves = v_edges[i];
-				for (auto& ve : ves)
-				{
-					auto& p = ve.v0;
-					if (ve.idx[0] < 0)
-						continue;
-					auto& c = VRINs[i].arcs[ve.idx[0]];
-					auto d = (p - c.c.c).length2();
-					d = sqrt(d);
-
-					ve.clr0() = fabs(d - c.cr());
-				}
-			}
-		}
+		
+		//{
+		//	for (int i = 0; i< v_edges.size(); i++)
+		//	{
+		//		auto& ves = v_edges[i];
+		//		for (auto& ve : ves)
+		//		{
+		//			auto& p = ve.v0;
+		//			if (ve.idx[0] < 0)
+		//				continue;
+		//			auto& c = VRINs[i].arcs[ve.idx[0]];
+		//			auto d = (p - c.c.c).length2();
+		//			d = sqrt(d);
+		//
+		//			ve.clr0() = fabs(d - c.cr());
+		//		}
+		//	}
+		//}
 
 		ms::renderPath(argc, argv, renderedPath);
 

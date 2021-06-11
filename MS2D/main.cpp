@@ -1294,6 +1294,7 @@ namespace ms {
 			auto& boundary	= renderMinkVoronoiGlobal::voronoiBoundary;
 
 			// 1. draw mink
+			if(!planning::keyboardflag['1'])
 			{
 				glColor3f(0, 0, 0);
 				size_t length = MR.size();
@@ -1310,6 +1311,7 @@ namespace ms {
 			}
 
 			// 2. draw voronoi
+			if (!planning::keyboardflag['2'])
 			{
 				glColor3f(0, 0, 1);
 				glBegin(GL_LINES);
@@ -2061,10 +2063,11 @@ namespace ms {
 						pathIdx = 0;
 
 						// path : 
-						tessPathAlignTheta(arcPathTess, graphSearch::testers2, Point(0, 1));
+						//tessPathAlignTheta(arcPathTess, graphSearch::testers2, Point(0, 1));
 
 						// save mcPath
 						pathGraphSearch = path;
+						mcPath.clear();
 						tessPathClear(path, 0.004, mcPath);
 
 

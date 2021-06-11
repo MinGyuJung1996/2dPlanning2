@@ -161,6 +161,7 @@
     <ClInclude Include="stb_image_write.h" />
     <ClInclude Include="voronoi.hpp" />
     <ClInclude Include="xyt-cs.hpp" />
+    <ClInclude Include="_TODO LIST.hpp" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="AStarOnVorDiag.cpp" />

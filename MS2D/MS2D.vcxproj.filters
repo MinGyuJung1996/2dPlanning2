@@ -39,6 +39,9 @@
     <ClInclude Include="xyt-cs.hpp">
       <Filter>헤더 파일</Filter>
     </ClInclude>
+    <ClInclude Include="_TODO LIST.hpp">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="MS2D.cpp">

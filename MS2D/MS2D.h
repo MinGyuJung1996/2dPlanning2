@@ -206,6 +206,7 @@ namespace ms {
 		inline double& x() { return P[0]; }
 		inline double& y() { return P[1]; }
 		inline double length2() { return P[0] * P[0] + P[1] * P[1]; }
+		inline double length1() { return sqrt(length2()); }
 		bool operator< (const Point& rhs) const;
 	};
 
@@ -373,6 +374,7 @@ namespace ms {
 		inline Point& n1() { return n[1]; }
 		inline Point& x0() { return x[0]; }
 		inline Point& x1() { return x[1]; }
+		inline Point&  cc() { return c.c; }
 		inline double& cx() { return c.c.x(); }
 		inline double& cy() { return c.c.y(); }
 		inline double& cr() { return c.r; }
