@@ -4,14 +4,27 @@
 #include "voronoi.hpp"
 #include "collision detection.hpp"
 #include "AStarOnVorDiag.h"
+#include "support.hpp"
 
+#define derr cerr
 
 planning::coneVoronoi coneVor;
 
 namespace graphSearch
 {
 	extern std::vector<cd::lineSegmentCollisionTester> testers;
-	extern std::vector<cd::pointCollisionTester> testers2;
+	extern std::vector<cd::pointCollisionTester> testers2; 
+	
+	using lseg = v_edge;
+	extern std::vector<std::vector<std::vector<lseg>>> offCrv; // offCrv[offIdx][sliceNo][lsegIdx];
+
+	extern std::vector<decltype(ms::Model_Result)>				MRs			; // data collected for checking
+	extern std::vector<decltype(ms::ModelInfo_Boundary)>		MIBs		; // data collected for checking
+	extern std::vector<decltype(ms::InteriorDisks_Convolution)>	IDC			; // save conv/disk
+	extern std::vector<planning::VR_IN>							VRINs		;
+	extern std::vector<decltype(ms::Model_Result)>				offsetMRs	;	// data collected for checking
+	extern std::vector<decltype(ms::ModelInfo_Boundary)>		offsetMIBs	; // data collected for checking
+	extern std::vector<decltype(ms::InteriorDisks_Convolution)>	offsetIDC	;  // save conv/disk
 }
 
 void
@@ -651,6 +664,7 @@ namespace ms {
 	}
 
 	Point clickedPoint;
+	vector<Point> clickedPoints;
 	void mouse_callback(int button, int action, int x, int y)
 	{
 
@@ -660,8 +674,9 @@ namespace ms {
 		if (button == 4)
 			zoom *= 0.95;
 
-		if (button == GLUT_LEFT_BUTTON)
+		if (button == GLUT_LEFT_BUTTON && action == GLUT_UP)
 		{
+			auto t0 = clock();
 			auto fx = float(x - 2 * wd / 3) / (wd/3);
 			auto fy = float(-y + ht / 2) / (ht / 2);
 			fx = zoom * fx + tx;
@@ -672,6 +687,12 @@ namespace ms {
 				<< "***************************************************************" << endl;
 			clickedPoint.x() = fx;
 			clickedPoint.y() = fy;
+
+			clickedPoints.push_back(clickedPoint);
+			while ((clock() - t0) < CLOCKS_PER_SEC)
+			{
+
+			}
 		}
 
 		static int grb = 0;
@@ -1293,6 +1314,9 @@ namespace ms {
 			auto& voronoi	= renderMinkVoronoiGlobal::v_edges[sliceIdx];
 			auto& boundary	= renderMinkVoronoiGlobal::voronoiBoundary;
 
+			static vector<CircularArc> ch;
+			static vector<CircularArc> chOff;
+
 			// 1. draw mink
 			if(!planning::keyboardflag['1'])
 			{
@@ -1325,8 +1349,20 @@ namespace ms {
 
 			// 3. draw Boundary for voronoi edges
 			glColor3f(0, 0, 0);
-			for (auto& arc : boundary)
-				arc.draw();
+			if (!planning::keyboardflag['3'])
+			{
+				auto& arcs = graphSearch::VRINs[sliceIdx].arcs;
+				auto& color = graphSearch::VRINs[sliceIdx].color;
+				for (int i = arcs.size() - 1; i >= 0; i--)
+				{
+					if (color[i] == 1.0)
+						arcs[i].draw();
+					else
+						break;
+				}
+				//for (auto& arc : boundary)
+				//	arc.draw();
+			}
 
 			// 4. draw clicked point
 			static bool clicked = false;
@@ -1335,7 +1371,7 @@ namespace ms {
 				if (ms::clickedPoint.x() != 0 || ms::clickedPoint.y() != 0)
 					clicked = true;
 			}
-			else
+			else if(!planning::keyboardflag['0'])
 			{
 				
 				Point cp;
@@ -1370,9 +1406,68 @@ namespace ms {
 				arc.draw2();
 
 			}
+			else
+			{
+				//draw maxtouch
+				if (clickedPoints.size() % 3 == 2)
+				{
+					cout << "mt calc query" << endl;
+
+					auto it = clickedPoints.end();
+					it--;
+					auto p1 = *it;
+					it--;
+					auto p0 = *it;
+					auto n0 = (p1 - p0).normalize();
+					double par, bestPar;
+					CircularArc bestArc;
+
+					double rmin = 1e8;
+
+					
+					for (auto& arc : graphSearch::VRINs[sliceIdx].arcs)
+					{
+						auto rad = arc.maxTouchRad(p0, n0, par);
+						if (rad > 1e-300)
+						{
+							if (rad < rmin)
+							{
+								rmin = rad;
+								bestPar = par;
+								bestArc = arc;
+							}
+						}
+					}
+
+					if (rmin != 1e8)
+					{
+						auto c = p0 + rmin * n0;
+						CircularArc ca;
+						ca = cd::constructArc(c, rmin, 1e-10, PI2 - 1e-10);
+						ca.draw2();
+
+						glPointSize(5.0);
+						glBegin(GL_POINT);
+						glVertex2dv(p0.P);
+						glEnd();
+						glPointSize(1.0);
+
+
+						glBegin(GL_LINES);
+						glVertex2dv(p0.P);
+						glVertex2dv(ca.cc().P);
+						glEnd();
+
+						cout << "minRad : " << rmin << " Par : " << bestPar << endl;
+						cout << bestArc << endl;
+					}
+
+				}
+
+			}
 
 			// 5. draw disk
-			if (planning::keyboardflag['j'])
+			if (planning::keyboardflag['4'])
 			{
 				glColor3f(0, 0, 0);
 				auto& disks = graphSearch::testers2[sliceIdx].getConvDisk();
@@ -1380,6 +1475,296 @@ namespace ms {
 					disk.draw();
 			}
 
+			// 6. draw offset
+			if (planning::keyboardflag['5'])
+			{
+				static int offSetMax = 0;
+				char temp;
+				temp = '[';
+				if (planning::keyboardflag[temp] != planning::keyboardflag_last[temp])
+					offSetMax--;
+				temp = ']';
+				if (planning::keyboardflag[temp] != planning::keyboardflag_last[temp])
+					offSetMax++;
+
+				auto& offCrv = graphSearch::offCrv;
+				glLineWidth(1.0f);
+				glBegin(GL_LINES);
+				for (int i = 0; i < offSetMax && i < offCrv.size(); i++)
+				{
+					// color
+					double t = double(i) / offCrv.size();
+					float
+						r = t * 1.0,
+						g = (1 - t) * 1.0,
+						b = 0.0;
+					glColor3f(r, g, b);
+
+					// draw
+					auto& offs = offCrv[i][sliceIdx];
+					for (auto& l : offs)
+					{
+						glVertex2d(l.v0.x(), l.v0.y());
+						glVertex2d(l.v1.x(), l.v1.y());
+					}
+				}
+				glEnd();
+			}
+
+			// 7. test support func
+			if (planning::keyboardflag['6'])
+			{
+				//dbg
+				//sliceIdx = 296;
+
+				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+				glColor3f(0, 0, 0);
+
+				static int hlt = -1;
+				char temp;
+				temp = '[';
+				if (planning::keyboardflag[temp] != planning::keyboardflag_last[temp])
+					hlt--;
+				temp = ']';
+				if (planning::keyboardflag[temp] != planning::keyboardflag_last[temp])
+					hlt++;
+
+				static int mc = 1000;
+				temp = '-';
+				if (planning::keyboardflag[temp] != planning::keyboardflag_last[temp])
+					mc--;
+				temp = '=';
+				if (planning::keyboardflag[temp] != planning::keyboardflag_last[temp])
+					mc++;
+
+
+				vector<SupportComplex> vsc;
+				int c = 0;
+				for (auto& loop : MR)
+				{
+					for (auto& as : loop)
+					{
+						for (auto& arc : as.Arcs)
+						{
+							Support s(arc);
+							vsc.emplace_back(s);
+
+							c++;
+							if (c == mc)
+								break;
+						}
+						if (c == mc)
+							break;
+					}
+					if (c == mc)
+						break;
+				}
+
+				if (Key('p'))
+				{
+					for (auto& s : vsc)
+						s.flip();
+				}
+
+				////debug
+				//{
+				//	CircularArc a0, a1;
+				//	a0 = cd::constructArc(Point(1, 0), Point(0, 1), Point(0, 1));
+				//	a1 = cd::constructArc(Point(0, -1), Point(-1, 0), Point(0, 1));
+				//
+				//	vsc.resize(0);
+				//	vsc.emplace_back(Support(a0));
+				//	vsc.emplace_back(Support(a1));
+				//
+				//	Support(a0).print();
+				//	Support(a1).print();
+				//
+				//	vsc[0].print();
+				//	vsc[1].print();
+				//}
+
+				SupportComplex env = vsc.front();
+				for (int i = 1; i < vsc.size(); i++)
+				{
+
+					////dbg_out derr
+					//{
+					//	if (sliceIdx == 296 && i == 7)
+					//	{
+					//		derr << "!!!!!!!!!env " << endl;
+					//		env.print();
+					//		derr << "!!!!!!!!!vsc[i] " << endl;
+					//		vsc[i].print();
+					//		derr << "!!!!!!!!!new env" << endl;
+					//		debugBlock.push_back(1.0);
+					//		env.upperEnvelope(vsc[i]).print();
+					//		debugBlock.resize(0);
+					//	}
+					//}
+
+					env = env.upperEnvelope(vsc[i]);
+				}
+
+
+				// do drawing
+				for (int i = 0; i< vsc.size(); i++)
+				{
+					if (hlt == i)
+						glLineWidth(5.0);
+					else
+						glLineWidth(1.0);
+					vsc[i].draw();
+				}
+
+				if (hlt == -1)
+					glLineWidth(10.0);
+				else
+					glLineWidth(1.0);
+				glColor3f(0, 1, 0);
+				env.draw();
+
+				cout << "highlight idx : " << hlt << endl;
+
+
+				goto end;
+			}
+
+			// 8. test COnvex Hull
+			if (planning::keyboardflag['7'])
+			{
+				vector<CircularArc> temp;
+
+				size_t length = MR.size();
+				for (size_t i = 0; i < length; i++)
+				{
+					if(MIB[i])
+					for (auto& as : MR[i])
+						for (auto& a : as.Arcs)
+							temp.push_back(a);
+				}
+
+				CvxHullCalc cc;
+				cc.setInput(temp);
+
+				cc.setOutput(ch);
+
+				cc.calcAlg();
+
+				for (auto& a : ch)
+				{
+					a.draw();
+				}
+
+				// drawOffset too
+				if (Key('8'))
+				{
+					
+					static double offset = 0.3;
+					if (Key3('-'))
+						offset -= 0.01;
+					if (Key3('='))
+						offset += 0.01;
+					if (offset < 0.01)
+						offset = 0.01;
+					CvxHullCalc::offset(ch, chOff, offset);
+					cout << "cvxH size : " << ch.size() << endl;
+					cout << "CvxHull offset : " << offset << "    , size : " << chOff.size() << endl;
+					for (auto& a : chOff)
+					{
+						a.draw();
+					}
+
+					if (Key3('p'))
+					{
+						cout << "!!!!!!!!!!!!! CVX HULL" << endl;
+						int i = 0;
+						for (auto a : ch)
+						{
+							cout << i << endl;
+							cout << a << endl<<endl;
+							i++;
+						}
+
+						cout << "!!!!!!!!!!!!!!!!!!! OFF CVX HULL " << endl;
+						for (auto a : chOff)
+							cout << a << endl<<endl;
+
+						cout << "!!!! NON G1 " << endl;
+						auto& in = ch;
+						for (int i = 0; i < in.size(); i++)
+						{
+							// 1. find next arc
+							int iNext = i + 1;
+							if (iNext == in.size())
+								iNext == 0;
+
+							// 3. check g1
+							const double errG1 = 1e-8;
+							bool g1;
+							{
+								auto dot = in[i].n1() * in[iNext].n0();
+								if (fabs(dot) > 1 - errG1) // note : theoeretically, fabs is not needed.
+									g1 = true;
+								else
+									g1 = false;
+							}
+
+							// 4. if(not g1, add intermediate arc)
+							if (!g1)
+							{
+								cout << "non g1 between : " << i << " , " << iNext << endl;
+							}
+
+						}
+					}
+				}
+
+				
+				//
+			}
+
+			// 9. draw common tangent
+			if (Key('9'))
+			{
+				for(int i = 0; i < MR.size(); i++)
+					for (int j = i + 1; j < MR.size(); j++)
+					{
+						if (MIB[i] && MIB[j])
+						{
+							auto& l0 = MR[i];
+							auto& l1 = MR[j];
+
+							vector<CircularArc>
+								loop0, loop1;
+
+							for (auto& as : l0)
+								for (auto& a : as.Arcs)
+									loop0.push_back(a);
+
+							for (auto& as : l1)
+								for (auto& a : as.Arcs)
+									loop1.push_back(a);
+
+							ComTanCalc cal;
+							vector<Point> pt;
+							cal.setInput0(loop0);
+							cal.setInput1(loop1);
+							cal.setOutput(pt);
+							cal.calc();
+
+							glBegin(GL_LINES);
+							for (auto& p : pt)
+								glVertex2dv(p.P);
+							glEnd();
+
+						}
+					}
+			}
+
+			end:
+			// 99. input
+			for (int i = 0; i < 256; i++)
+				planning::keyboardflag_last[i] = keyboardflag[i];
 			glutSwapBuffers();
 		};
 

@@ -14,7 +14,7 @@
 //#include "glad/glad.h" //due to legacy stuff being unusable, (glvertex...), this part was commented.
 #include "GL/glut.h"
 
-static double dbgBlock[100];
+extern std::vector<double> debugBlock;
 
 static const double PI		=		3.14159265358979323846264;
 static const double PI2		= 2 *	3.14159265358979323846264;
@@ -257,7 +257,7 @@ namespace ms {
 		friend std::tuple<Point, Point, int> intersection_self(Circle &lhs, Circle &rhs);
 		friend std::vector<Circle> importCircles(std::string filename);
 		friend std::vector<Circle> operator +(std::vector<Circle> &lhs, std::vector<Circle> &rhs);
-		friend std::ostream &operator <<(std::ostream &os, const Circle &p);
+		friend std::ostream &operator <<(std::ostream &os, Circle &p);
 
 	public:
 		//생성자 및 소멸자
@@ -308,7 +308,7 @@ namespace ms {
 		friend struct Geometry;
 		friend std::tuple<Point, Point, int> intersection_CircularArc(CircularArc &lhs, CircularArc &rhs);
 		friend bool intersection_bool(CircularArc &lhs, CircularArc &rhs, Point &p);
-		friend std::ostream &operator <<(std::ostream &os, const CircularArc &p);
+		friend std::ostream &operator <<(std::ostream &os, CircularArc &p);
 
 	public:
 		//생성자 및 소멸자
@@ -388,7 +388,7 @@ namespace ms {
 			{
 				theta0 = atan0();
 				theta1 = atan1();
-				if (lccw())
+				if (ccw)
 					while (theta1 < theta0)
 						theta1 += PI2;
 				else
@@ -397,6 +397,14 @@ namespace ms {
 			}
 			return std::make_pair(theta0, theta1);
 		}
+		inline Point tan0() { return lccw() ? n0().rotate() : -n0().rotate(); }
+		inline Point tan1() { return lccw() ? n1().rotate() : -n1().rotate(); }
+
+		inline Point xt(double radian) { return cc() + cr() * Point(cos(radian), sin(radian)); }
+		inline Point nt(double radian) { return Point(cos(radian), sin(radian)); }
+		inline Point tan(double radian) { return lccw() ? Point(cos(radian), sin(radian)).rotate() : -Point(cos(radian), sin(radian)).rotate(); }
+
+		double maxTouchRad(Point p, Point n, double& par);
 
 	};
 
@@ -555,7 +563,7 @@ namespace ms {
 		friend bool aabbtest(ArcSpline &lhs, ArcSpline &rhs);
 		friend bool aabbtest(ArcSpline &lhs, ArcSpline &rhs, std::pair<int, int> &left, std::pair<int, int> &right);
 		friend bool aabbtest(CircularArc &lhs, ArcSpline &rhs, std::pair<int, int> &right);
-		friend std::ostream &operator <<(std::ostream &os, const ArcSpline &p);
+		friend std::ostream &operator <<(std::ostream &os, ArcSpline &p);
 		//for extract statistics data
 		friend void circleTrimming(std::vector<ArcSpline> &input, std::vector<ArcSpline> &trimmed);
 

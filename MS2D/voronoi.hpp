@@ -3,7 +3,6 @@
 #include <fstream>
 #include "stb_image_write.h"
 
-
 namespace planning
 {
 
@@ -50,6 +49,7 @@ namespace planning
 	namespace output_to_file
 	{
 #define NUMBER_OF_SLICES 360
+
 		extern int m0, m1, cf;
 		extern bool flag;
 		extern double zoom;
@@ -442,3 +442,7 @@ public:
 	std::vector<VoronoiEdge> findVoronoiCurvePair(VoronoiEdge& v0, VoronoiEdge& v1, double equalPointError);
 	void initialize();
 };
+
+inline bool Key(char c) { return planning::keyboardflag[c]; }
+inline bool Key2(char c) { return planning::keyboardflag_last[c]; }
+inline bool Key3(char c) { return planning::keyboardflag[c] != planning::keyboardflag_last[c]; }

@@ -3,6 +3,8 @@
 #include "AStarOnVorDiag.h"
 
 //double dbgBlock[100];
+std::vector<double> debugBlock;
+
 
 #define useApproxInSymmetryCollision true
 #define useNewerVersionOfG1conveter false
@@ -286,7 +288,7 @@ void initializeRobotObstacles(int RobotIdx, int ObstaclesIdx)
 	{
 		const int
 			nRobot = 3,
-			nObs = 3;
+			nObs = 5;
 
 		if (RobotIdx < 0)
 			RobotIdx = 0;
@@ -440,6 +442,10 @@ void initializeRobotObstacles(int RobotIdx, int ObstaclesIdx)
 		vector<CircularArc> arcObjectSq;
 		vector<Circle> circObjectSq;
 		readArcModelAndProcessIt("Objects/Square-shape/arc.txt", "Objects/Square-shape/circ.txt", arcObjectSq, circObjectSq);
+		// 2-5. Load square
+		vector<CircularArc> arcObjectSqG1;
+		vector<Circle> circObjectSqG1;
+		readArcModelAndProcessIt("Objects/Square-shape-g1/arc.txt", "Objects/Square-shape-g1/circ.txt", arcObjectSqG1, circObjectSqG1);
 
 		// 2-6. Load Hexagon
 		vector<CircularArc> arcObjectHx;
@@ -460,9 +466,33 @@ void initializeRobotObstacles(int RobotIdx, int ObstaclesIdx)
 		Point uniformTranslation;
 		switch (ObstaclesIdx)
 		{
+		case 4:
+		{
+			vector<CircularArc> arcObjectSq;
+			vector<Circle>	   circObjectSq;
+			readArcModel("Objects/Square-shape-g1/arc.txt", "Objects/Square-shape-g1/circ.txt", arcObjectSq, circObjectSq);
+
+			vector<CircularArc> arcObjectTri;
+			vector<Circle>     circObjectTri;
+			readArcModel("Objects/Hex-shape-g1/arc.txt", "Objects/Hex-shape-g1/circ.txt", arcObjectTri, circObjectTri);
+
+			appendArcModel(sceneOriginal, sceneCircles, arcObjectSq, circObjectSq, 0.3, 0.5, Point(-0.36, -0.39));
+			appendArcModel(sceneOriginal, sceneCircles, arcObjectTri, circObjectTri, 0.3, -0.3, Point(+0.33, -0.45));
+			appendArcModel(sceneOriginal, sceneCircles, arcObjectL, circObjectL, 0.3, -0.3, Point(+0.30, +0.30));
+
+			vbRad = 1.0;
+			break;
+		}
 		case 3:
 		{
-
+			uniformTranslation = Point(0.15, 0.05);
+			appendArcModel(sceneOriginal, sceneCircles, arcObjectL3,   circObjectL3,   1.3,  -90.05, uniformTranslation + Point(-0.1, +0.10));
+			appendArcModel(sceneOriginal, sceneCircles, arcObjectL2,   circObjectL2,   0.4,  -90.05, uniformTranslation + Point(-0.1, +0.10));
+			appendArcModel(sceneOriginal, sceneCircles, arcObjectL3,   circObjectL3,   1.3,  +90.05, uniformTranslation + Point(-0.5, +0.03));
+			appendArcModel(sceneOriginal, sceneCircles, arcObjectL2,   circObjectL2,   0.4,  +90.05, uniformTranslation + Point(-0.5, +0.03));
+			appendArcModel(sceneOriginal, sceneCircles, arcObjectSqG1, circObjectSqG1, 0.5,  + 0.05, uniformTranslation + Point(+0.07, -0.30));
+			appendArcModel(sceneOriginal, sceneCircles, arcObjectSqG1, circObjectSqG1, 0.25, +55.05, uniformTranslation + Point(-0.53, 0.30));
+			break;
 		}
 		case 2:
 		{
@@ -1071,6 +1101,158 @@ void tessPathClear(vector<Vertex>& in_path, double in_tessLen, vector<Vertex>& o
 	// last pt
 	out.push_back(in.back());
 }
+
+/*
+Def:
+	Given a point-normal, find maximum touching disks contact parameter (Btw 0.0, 1.0)
+Input:
+	p :
+	n :
+Output:
+	par:
+		[0.0, 1.0] (if exists contact)
+		-1.0 (if no contact)
+	Return:
+		radius of max touch
+Note:
+	no check: when arc is concave, whether rad is bigger than p's arc's rad
+*/
+double CircularArc::maxTouchRad(Point p, Point n, double& par)
+{
+	// 1. Alias
+	Point  L = cc() - p; // line: p-circCenter;
+	double R = cr();
+	double b = L * n;
+	if (b < -R) return -1.0; // case : circle is below normal direction
+
+	// 2. whether p is inside circ or not
+	double d2 = L * L;
+	double d = sqrt(d2);
+	bool pInCir = d < R;
+
+	// 3. find max touch with circle (not arc)
+	double y;
+	if (pInCir)
+		y = (d2 - R * R) / (2 * (b - R)); // always pos
+	else
+		y = (d2 - R * R) / (2 * (b + R)); // Note : b < -R => y can be negative
+
+	////debug
+	//{
+	//	if (cr() > 9)
+	//	{
+	//		cout << "cr : " << cr() << endl;
+	//		cout
+	//			<< "d2			: " << d2			<< endl
+	//			<< "R * R		: " << R * R		<< endl
+	//			<< "d2 - R * R	: " << d2 - R * R	<< endl
+	//			<< "y			: " << y			<< endl;
+	//	}
+	//}
+
+	// 4. find best point's normal dir in arc
+	Point normal = p + y * n - cc();
+	normal = normal / sqrt(normal * normal);
+
+	// 5. check whether best point is in arc // get theta value 
+	bool bpInArc;
+	auto arcPar = param();
+	double theta = atan2(normal.y(), normal.x());
+	double theta0 = arcPar.first;
+	double theta1 = arcPar.second;
+	{
+		if (lccw())
+		{
+			while (theta < theta0)
+				theta += PI2;
+			if (theta < theta1)
+				bpInArc = true;
+			else
+				bpInArc = false;
+		}
+		else
+		{
+			while (theta > theta0)
+				theta -= PI2;
+			if (theta > theta1)
+				bpInArc = true;
+			else
+				bpInArc = false;
+		}
+	}
+
+	// 6. if(bp in arc && rad > 0.0) return sol for first case;
+	if(bpInArc && y > 0.0)
+	{
+		par = (theta - theta0) / (theta1 - theta0);
+		return y;
+	}
+
+	// 7. else {one of endpoint is sol} => find rad
+	auto d0 = x0() - p;
+	auto d1 = x1() - p;
+
+	double r0 = (d0 * d0); 
+	if(r0 < 1e-100) // div0 test
+	{
+		par = 0.0;
+		return r0;
+	}
+	r0 /= (2 * (n * d0));
+
+	double r1 = (d1 * d1); 
+	if (r1 < 1e-100) // div0 test
+	{
+		par = 1.0;
+		return r1;
+	}
+	r1 /= (2 * (n * d1));
+	// TODO : need div0 test?
+
+	// 8. check whether endpoint rad is positive / which endpoint is better
+	bool
+		use_r0;
+	{
+		//TODO : change to swictch
+		bool
+			r0pos = r0 > 0,
+			r1pos = r1 > 0;
+
+		if (r0pos && r1pos)
+		{
+			if (r0 < r1)
+				use_r0 = true;
+			else
+				use_r0 = false;
+		}
+		else if (r0pos)
+		{
+			use_r0 = true;
+		}
+		else if (r1pos)
+		{
+			use_r0 = false;
+		}
+		else
+		{
+			return -2.0;
+		}
+	}
+
+	// 9. return solution for 2nd case
+	if (use_r0)
+	{
+		par = 0.0;
+		return r0;
+	}
+	else
+	{
+		par = 1.0;
+		return r1;
+	}
+}
+
+
 #pragma endregion
 
 namespace ms{
@@ -3193,7 +3375,7 @@ Point operator-(const Point & lhs, const Point & rhs)
 */
 std::ostream & operator<<(std::ostream &os, const Point &p)
 {
-	os << "(" << p.P[0] << ", " << p.P[1] << ")";
+	os << "(" << setw(10) << p.P[0] << ", " << setw(10) << p.P[1] << ")";
 	return os;
 }
 
@@ -3363,7 +3545,7 @@ std::vector<Circle> operator+(std::vector<Circle>& lhs, std::vector<Circle>& rhs
 *
 *	\return 원의 중심과 반지름을 순서대로 반환한다
 */
-std::ostream & operator<<(std::ostream & os, const Circle & p)
+std::ostream & operator<<(std::ostream & os, Circle & p)
 {
 	os << "Center: " << p.c << "\n" << "Radius: " << p.r;
 	return os;
@@ -3454,9 +3636,17 @@ bool intersection_bool(CircularArc & lhs, CircularArc & rhs, Point &p)
 *
 *	\return Circular Arc의 시작점과 끝점의 좌표를 출력한다.
 */
-std::ostream & operator<<(std::ostream & os, const CircularArc & p)
+std::ostream & operator<<(std::ostream & os, CircularArc & p)
 {
-	os << p.c << "\n" << "init Point: " << p.x[0] << "\n" << "end Point: " << p.x[1];
+	auto par = p.param();
+	auto len = p.cr() * (par.first - par.second);
+
+	os << p.c << "\n" 
+		<< "init P: " << p.x[0] << "\n" 
+		<< "end  P: " << p.x[1] << "\n"
+		<< "init N: " << p.n[0] << "\n"
+		<< "end  N: " << p.n[1] << "\n"
+		<< "arcLen: " << len << endl;
 	return os;
 }
 
@@ -4708,7 +4898,7 @@ bool aabbtest(CircularArc & lhs, ArcSpline & rhs, std::pair<int, int>& right)
 *
 *	\return Arc Spline를 이루는 각 Circular Arc를 순서대로 출력한다
 */
-std::ostream & operator<<(std::ostream & os, const ArcSpline & p)
+std::ostream & operator<<(std::ostream & os, ArcSpline & p)
 {
 	std::cout << "ArcSpline: \n";
 	for (int i = 0; i < (int)p.Arcs.size(); i++) {

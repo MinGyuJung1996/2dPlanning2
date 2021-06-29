@@ -143,6 +143,7 @@
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
       <FloatingPointModel>Precise</FloatingPointModel>
       <EnableFiberSafeOptimizations>false</EnableFiberSafeOptimizations>
+      <OpenMPSupport>true</OpenMPSupport>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -156,9 +157,11 @@
     <ClInclude Include="collision detection.hpp" />
     <ClInclude Include="Commentated Notes About The Project.h" />
     <ClInclude Include="MS2D.h" />
+    <ClInclude Include="refine.hpp" />
     <ClInclude Include="stb.h" />
     <ClInclude Include="stb_image.h" />
     <ClInclude Include="stb_image_write.h" />
+    <ClInclude Include="support.hpp" />
     <ClInclude Include="voronoi.hpp" />
     <ClInclude Include="xyt-cs.hpp" />
     <ClInclude Include="_TODO LIST.hpp" />
@@ -171,7 +174,9 @@
     <ClCompile Include="MS2D.cpp" />
     <ClCompile Include="Bernstein.cpp" />
     <ClCompile Include="realMain.cpp" />
+    <ClCompile Include="refine.cpp" />
     <ClCompile Include="stb.cpp" />
+    <ClCompile Include="support.cpp" />
     <ClCompile Include="voronoi.cpp" />
     <ClCompile Include="xyt-cs.cpp" />
   </ItemGroup>

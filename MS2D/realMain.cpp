@@ -3,9 +3,11 @@
 #include "voronoi.hpp"
 #include "AStarOnVorDiag.h"
 #include "collision detection.hpp"
-
+#include "support.hpp"
 using namespace std;
 extern double vbRad;
+
+#define COUT(x) #x ": " << x 
 
 namespace ms
 {
@@ -227,7 +229,16 @@ namespace graphSearch
 	std::vector<cd::lineSegmentCollisionTester> testers;
 	std::vector<cd::pointCollisionTester> testers2;
 
+	using lseg = v_edge;
+	std::vector<std::vector<std::vector<lseg>>> offCrv; // offCrv[offIdx][sliceNo][lsegIdx];
 
+	std::vector<decltype(ms::Model_Result)>					MRs(ms::numofframe); // data collected for checking
+	std::vector<decltype(ms::ModelInfo_Boundary)>			MIBs(ms::numofframe); // data collected for checking
+	std::vector<decltype(ms::InteriorDisks_Convolution)>	IDC(ms::numofframe); // save conv/disk
+	std::vector<planning::VR_IN>							VRINs(ms::numofframe);
+	std::vector<decltype(ms::Model_Result)>					offsetMRs(ms::numofframe);	// data collected for checking
+	std::vector<decltype(ms::ModelInfo_Boundary)>			offsetMIBs(ms::numofframe); // data collected for checking
+	std::vector<decltype(ms::InteriorDisks_Convolution)>	offsetIDC(ms::numofframe);  // save conv/disk
 	/*
 	Def:
 		Computes Voronoi Edges for each slice, and store them in a vector<vector<v_edge>> v_edges.
@@ -235,8 +246,8 @@ namespace graphSearch
 	*/
 	int main2(int argc, char* argv[])
 	{
-		int robotType = 0;
-		int obsType   = 0;
+		int robotType = 1;
+		int obsType   = 4;
 
 		//minor stuffs with model
 		{
@@ -247,7 +258,7 @@ namespace graphSearch
 		}
 
 		// 1. build v_edges
-		planning::_h_fmdsp_g1 = 1e-8;
+		planning::_h_fmdsp_g1 = 1e-6; 
 		initializeRobotObstacles(robotType, obsType);	// read data from files.
 		ms::ModelInfo_CurrentModel = std::make_pair(1, 7);
 		ms::postProcess(ms::ModelInfo_CurrentModel.first, ms::ModelInfo_CurrentModel.second); // process arcs to satisfy conditions.
@@ -257,13 +268,7 @@ namespace graphSearch
 		planning::output_to_file::bifur_points.resize(0); // dummy
 		planning::output_to_file::bifur_points.resize(ms::numofframe); //dummy
 		planning::drawVoronoiSingleBranch = false; //disable drawing for now.
-		std::vector<decltype(ms::Model_Result)>					MRs(ms::numofframe); // data collected for checking
-		std::vector<decltype(ms::ModelInfo_Boundary)>			MIBs(ms::numofframe); // data collected for checking
-		std::vector<decltype(ms::InteriorDisks_Convolution)>	IDC(ms::numofframe); // save conv/disk
-		std::vector<planning::VR_IN>							VRINs(ms::numofframe);
-		std::vector<decltype(ms::Model_Result)>					offsetMRs(ms::numofframe);	// data collected for checking
-		std::vector<decltype(ms::ModelInfo_Boundary)>			offsetMIBs(ms::numofframe); // data collected for checking
-		std::vector<decltype(ms::InteriorDisks_Convolution)>	offsetIDC(ms::numofframe); // save conv/disk
+		
 
 		auto mvStartTime = clock();
 		for (size_t i = 0, length = ms::numofframe /* = 360*/; i < length; i++)
@@ -281,17 +286,61 @@ namespace graphSearch
 			planning::_Convert_MsOut_To_VrIn(ms::Model_Result, ms::ModelInfo_Boundary, vrin);
 			//planning::_Medial_Axis_Transformation(vrin);
 			voronoiCalculator vc;
-			vector<deque<VoronoiEdge>> v_res;
 			vc.initialize();
 			vc.setInput(vrin.arcs, vrin.left, vrin.color);
-			vc.setOutput(v_res);
-			vc.calculate();
 
-			auto& result = planning::output_to_file::v_edges[i];
-			for (auto& a : v_res)
-				for (auto& b : a)
-					result.push_back(b);
+			int vType = 1;
+			if(vType == 1)
+			{
+				vector<deque<VoronoiEdge>> v_res;
+				vc.setOutput(v_res);
+				vc.calculate();
 
+				auto& result = planning::output_to_file::v_edges[i];
+				for (auto& a : v_res)
+					for (auto& b : a)
+						result.push_back(b);
+
+				//dbg
+				if (i == 90)
+				{
+					Point q(0.705595, -0.49015);
+					auto& cyc = vc.getCycles();
+					for (int j = 0; j < cyc.size(); j++)
+					{
+						bool close = false;
+						for (int k = 0; k < cyc[j].size(); k++)
+						{
+							auto& arc = cyc[j][k];
+							if ((arc.x0() - q).length1() < 1e-2)
+								close = true;
+
+							if ((arc.x1() - q).length1() < 1e-2)
+								close = true;
+							
+						}
+
+						if (close)
+						{
+							cout << "Missing Vor's cycle : " << endl;
+							cout << "			" << cyc[j].size() << endl;
+							for (auto& arc : cyc[j])
+								cout << arc << endl;
+						}
+					}
+				}
+			}
+			else if (vType == 2)
+			{
+				voronoiCalculatorResultG vcg;
+				vc.setOutputG(vcg);
+				vc.calculateG();
+				auto& result = planning::output_to_file::v_edges[i];
+				
+				for (auto& a : vcg.E())
+					for (auto& b : a)
+						result.push_back(b);
+			}
 			// 1-3. Offset Curve;
 
 			//// dbg_out
@@ -410,12 +459,17 @@ namespace graphSearch
 				(v00, v10) or (v01, v11) might have intersection with csobs if minClr is small.
 				(+) line seg connecting start and closest-vor-pt might also have intersection.
 		*/
-		using lseg = v_edge;
 		vector<vector<lseg>> offCso(ms::numofframe); // Def: offset config-space-obs; offCso[sliceNo][segIdx]
 		vector<vector<lseg>> offCon(ms::numofframe); // def: offset connector(to voronoi)
+		int nOffIdx = 1;
+		offCrv.resize(nOffIdx);
+		for (int offIdx = 0; offIdx< nOffIdx; offIdx++)
 		{
+			offCso.resize(0);
+			offCso.resize(ms::numofframe);
+
 			auto& vess = planning::output_to_file::v_edges;
-			double minClr = 0.01; // minimum clearance.
+			double minClr = 0.01 * (offIdx+1); // minimum clearance.
 			// for (each slice)
 			for (int sn = 0; sn < ms::numofframe; sn++) // sn := sliceNo
 			{
@@ -769,6 +823,8 @@ namespace graphSearch
 
 				}
 			}
+
+			offCrv[offIdx] = offCso;
 		}
 
 		// WARNING:
@@ -786,6 +842,232 @@ namespace graphSearch
 		auto offsetEndTime = clock();
 		cout << "Offset init time : "
 			<< double(offsetEndTime - offsetStartTime) / 1000 << "s" << endl;
+
+		// 4. add comTan;
+		{
+			auto& ves = planning::output_to_file::v_edges;
+			for (int sn = 0; sn < ms::numofframe; sn++)
+			{
+				auto& MR = MRs[sn];
+				auto& MIB = MIBs[sn];
+				vector<Point> pt;
+
+				// build pt
+				for (int i = 0; i < MR.size(); i++)
+					for (int j = i + 1; j < MR.size(); j++)
+					{
+						// if(both are outer loop)
+						if (MIB[i] && MIB[j])
+						{
+							auto& l0 = MR[i];
+							auto& l1 = MR[j];
+
+							vector<CircularArc>
+								loop0, loop1;
+
+							for (auto& as : l0)
+								for (auto& a : as.Arcs)
+									loop0.push_back(a);
+
+							for (auto& as : l1)
+								for (auto& a : as.Arcs)
+									loop1.push_back(a);
+
+							ComTanCalc cal;
+							vector<Point> temp;
+							cal.setInput0(loop0);
+							cal.setInput1(loop1);
+							cal.setOutput(temp);
+							cal.calc();
+
+							pt.insert(pt.end(), temp.begin(), temp.end());
+
+						}
+					}
+
+				// add to graph
+				for (int i = 0; i < pt.size(); i += 2)
+				{
+					// find tangent endpoints( p0 < p1)
+					auto p0 = pt[i];
+					auto p1 = pt[i+1];
+					
+					if (p1.x() < p0.x())
+					{
+						auto temp = p0;
+						p0 = p1;
+						p1 = temp;
+					}
+					// TODO : NEED OPTIMIZATION : var related to p1, p1 can be here
+					double a0, b0, c0; // ax + by + c = 0
+					auto d0 = p1 - p0; // direction0
+					d0 = d0.rotate();
+					a0 = d0.x();
+					b0 = d0.y();
+					c0 = -(d0 * p0);
+
+					//Line l0(p0, p1);
+
+					////dbg
+					//{
+					//	//v_edge temp;
+					//	//temp.v0 = p0;
+					//	//temp.v1 = p1;
+					//	//ves[sn].push_back(temp);
+					//	//continue;
+					//	cout << COUT(p0) << "     " << COUT(p1) << endl;
+					//}
+					//flag = 0;
+					////~dbg
+					static int flag = 0;
+
+
+					//find all intersection
+					std::map<Point, int> intEdgMap; // intersection-edge map
+					set<Point> inter;
+					for (int i = 0; i < ves[sn].size(); i++)
+					{
+						auto& v = ves[sn][i];
+						//Line l1(v.v0, v.v1);
+						//Point inter0(l0, l1);
+
+						double a1, b1, c1;
+						double x, y, z;
+						auto d1 = v.v1 - v.v0;
+
+						Point inter0;
+						{
+
+							//get inter of two line seg
+							d1 = d1.rotate();
+							a1 = d1.x();
+							b1 = d1.y();
+							c1 = -(d1 * v.v0);
+
+							x = b0 * c1 - b1 * c0;
+							y = c0 * a1 - c1 * a0;
+							z = a0 * b1 - a1 * b0;
+
+							if (abs(z) < 1e-100) {
+								cout << "Too small: " << COUT(z) << endl;
+								continue;
+							}
+
+							inter0 = Point(x / z, y / z);
+
+							//if (abs(inter0 * d0 + c0) > 1e-8)
+							//	continue;
+						}
+
+						//if(valid intersection)
+						bool
+							cond0 = inter0.x() < p0.x(),
+							cond1 = inter0.x() < p1.x(),
+							cond2 = inter0.x() < v.v0.x(),
+							cond3 = inter0.x() < v.v1.x();
+						if ((cond0 ^ cond1) && (cond2 ^ cond3))
+						{
+							inter.insert(inter0);
+							intEdgMap[inter0] = i;
+
+							//
+							//flag++;
+							//if (flag == 3)
+							//{
+							//	cout << "debugging: \n";
+							//	cout << COUT(p0) << "     " << COUT(p1) << endl;
+							//	cout << COUT(v.v0) << "     " << COUT(v.v1) << endl;
+							//	cout
+							//		<< COUT(d0) << endl
+							//		<< COUT(a0) << endl
+							//		<< COUT(b0) << endl
+							//		<< COUT(c0) << endl
+							//		<< COUT(d1) << endl
+							//		<< COUT(a1) << endl
+							//		<< COUT(b1) << endl
+							//		<< COUT(c1) << endl
+							//		<< COUT(x)  << endl
+							//		<< COUT(y)  << endl
+							//		<< COUT(z)  << endl;
+							//	cout
+							//		<< "p0 * line0: " << a0 * p0.x() + b0 * p0.y() + c0 << endl
+							//		<< "p1 * line0: " << a0 * p1.x() + b0 * p1.y() + c0 << endl
+							//		<< "v0 * line1: " << a1 * v.v0.x() + b1 * v.v0.y() + c1 << endl
+							//		<< "v1 * line1: " << a1 * v.v1.x() + b1 * v.v1.y() + c1 << endl
+							//		<< "rr * line0: " << a0 * x + b0 * y + c0 * z << endl
+							//		<< "rr * line1: " << a1 * x + b1 * y + c1 * z << endl;
+							//}
+						}
+					}
+
+					vector<Point> intVec;
+					intVec.insert(intVec.end(), inter.begin(), inter.end());
+					int chunk = 1; // when too mnay inter... pick only some (stride size)
+
+					//dbg_out
+					if(flag == sn)
+						cout << COUT(intVec.size()) << endl;
+
+					// if(no inter with cso) add to edge list
+					set<int> connectIdx;
+					for (int i = 0; i < int(intVec.size()) - 1; i+=chunk)
+					{
+						int in = i + chunk;
+						if (in >= intVec.size())
+							in = intVec.size() - 1;
+
+						auto& v0 = intVec[i];
+						auto& v1 = intVec[in];
+
+						if(testers[sn].test(v0, v1))
+						{
+							continue;
+						}
+						else
+						{
+							v_edge temp;
+							temp.v0 = v0;
+							temp.v1 = v1;
+							ves[sn].push_back(temp);
+							connectIdx.insert(i);
+							connectIdx.insert(in);
+						}
+					}
+
+					// add connection btw : new edge -old edge
+					//int cnt0 = 0, cnt1 = 0;
+					for (auto& i : connectIdx)
+					{
+						//cnt0++;
+						auto& v0 = intVec[i];
+						auto vep = intEdgMap.find(v0);
+						if (vep == intEdgMap.end())
+						{
+							continue;
+						}
+						auto& vei = (vep->second);
+						auto& ve = ves[sn][vei];
+
+						v_edge temp0, temp1;
+						temp0.v0 = v0;
+						temp0.v1 = ve.v0;
+						temp1.v0 = v0;
+						temp1.v1 = ve.v1;
+						
+						////dbg
+						//continue;
+
+						ves[sn].push_back(temp0);
+						ves[sn].push_back(temp1);
+						//cnt1++;
+					}
+
+					//cout << "cnt1 / cnt0 = " << cnt1 << " / " << cnt0 << endl;
+				}
+			}
+
+		}
+
 
 		///* test if result is same : print all v-edges to file and compare it*/
 		//std::ofstream fout("ve_out.txt");
@@ -805,7 +1087,7 @@ namespace graphSearch
 		std::vector<std::vector<v_edge>>&
 			v_edges = planning::output_to_file::v_edges;
 
-		if (0)
+		if (1)
 		{
 			_h_fmdsp_g1 = 1e-3;
 			ms::renderMinkVoronoi(argc, argv, MRs, MIBs, v_edges, planning::voronoiBoundary);

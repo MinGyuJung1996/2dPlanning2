@@ -2,6 +2,9 @@
 #include <filesystem>
 #include "collision detection.hpp"
 #include <iomanip>
+#include "support.hpp"
+
+#define useCvxHullAsVorBound true
 
 namespace planning
 {
@@ -2693,6 +2696,7 @@ namespace planning
 			//vrIn.color.push_back(1);
 			//vrIn.arcsPerLoop.push_back(4);
 
+			#if !(useCvxHullAsVorBound)
 			auto s = vrIn.arcs.size();
 			size_t length = voronoiBoundary.size();
 			for (size_t i = 0; i < length; i++)
@@ -2702,6 +2706,43 @@ namespace planning
 				vrIn.color.push_back(1.0);
 			}
 			vrIn.arcsPerLoop.push_back(length);
+			#else
+			// i. find cvxHull
+			vector<CircularArc> temp;
+			auto& MR = msOut;
+			auto& MIB = isBoundary;
+			size_t length = MR.size();
+			for (size_t i = 0; i < length; i++)
+			{
+				if (MIB[i])
+					for (auto& as : MR[i])
+						for (auto& a : as.Arcs)
+							temp.push_back(a);
+			}
+
+			CvxHullCalc cc;
+			cc.setInput(temp);
+
+			vector<CircularArc> ch;
+			cc.setOutput(ch);
+
+			cc.calcAlg();
+
+			vector<CircularArc> chOff;
+			static double offset = 0.2;
+			CvxHullCalc::offset(ch, chOff, offset);
+
+			// ii. do actual pushing
+			auto s = vrIn.arcs.size();
+			length = chOff.size();
+			for (size_t i = 0; i < length; i++)
+			{
+				vrIn.arcs.push_back(chOff[i]);
+				vrIn.left.push_back(s + ((i - 1) % length));
+				vrIn.color.push_back(1.0);
+			}
+			vrIn.arcsPerLoop.push_back(length);
+			#endif
 		}
 
 
