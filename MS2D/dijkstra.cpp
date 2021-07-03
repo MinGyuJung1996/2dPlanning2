@@ -104,6 +104,8 @@ djkCalc::buildGraph
 			auto& ew = edgeWeights[sn];
 			auto& et = edgeTypes[sn];
 
+			auto degree = double(sn) / ns * 360.0;
+
 			// push dummy point -> now ptIdx corresponds to pt;
 			pl.push_back(Point(0, 0));
 			cl.push_back(-1.0);
@@ -113,8 +115,33 @@ djkCalc::buildGraph
 			// 1-1. voronoiEdges
 			for (auto& e : vor[sn])
 			{
+				//// i. vm & pl & cl (new)
+				//auto& idx0 = vm[e.v0];
+				//{
+				//	// if(e.v0 not inside map) new idx
+				//	if (idx0 == 0)
+				//	{
+				//		idx0 = vm.size();
+				//		pl.push_back(e.v0);
+				//		cl.push_back(e.clr0());
+				//	}
+				//}
+				//
+				//auto& idx1 = vm[e.v1];
+				//{
+				//	// if(e.v1 not inside map) new idx
+				//	if (idx1 == 0)
+				//	{
+				//		idx1 = vm.size();
+				//		pl.push_back(e.v1);
+				//		cl.push_back(e.clr1());
+				//	}
+				//}
+
 				// i. vm & pl & cl (new)
-				auto& idx0 = vm[e.v0];
+				auto& pair0 = vm.insert({ e.v0, 0 });
+				auto& v0 = pair0.first->first;
+				auto& idx0 = pair0.first->second;
 				{
 					// if(e.v0 not inside map) new idx
 					if (idx0 == 0)
@@ -125,7 +152,9 @@ djkCalc::buildGraph
 					}
 				}
 
-				auto& idx1 = vm[e.v1];
+				auto& pair1 = vm.insert({ e.v1, 0 });
+				auto& v1 = pair1.first->first;
+				auto& idx1 = pair1.first->second;
 				{
 					// if(e.v1 not inside map) new idx
 					if (idx1 == 0)
@@ -153,11 +182,13 @@ djkCalc::buildGraph
 					el.emplace_back(idx0, idx1);
 
 					// iv. ew
-					Weight w;
-					{
-						//
-						w = (e.v0 - e.v1).length1();
-					}
+					Weight w = findWeight(v0, v1, frw, degree);
+					//Weight w = findWeight(e.v0, e.v1, frw);
+					//Weight w;
+					//{
+					//	//
+					//	w = (e.v0 - e.v1).length1();
+					//}
 					ew.push_back(w);
 
 					// v. et
@@ -168,8 +199,33 @@ djkCalc::buildGraph
 			// 1-2. offset curves
 			for (auto& e : off[sn])
 			{
+				//// i. vm & pl & cl (new)
+				//auto& idx0 = vm[e.v0];
+				//{
+				//	// if(e.v0 not inside map) new idx
+				//	if (idx0 == 0)
+				//	{
+				//		idx0 = vm.size();
+				//		pl.push_back(e.v0);
+				//		cl.push_back(e.clr0());
+				//	}
+				//}
+				//
+				//auto& idx1 = vm[e.v1];
+				//{
+				//	// if(e.v1 not inside map) new idx
+				//	if (idx1 == 0)
+				//	{
+				//		idx1 = vm.size();
+				//		pl.push_back(e.v1);
+				//		cl.push_back(e.clr1());
+				//	}
+				//}
+
 				// i. vm & pl & cl (new)
-				auto& idx0 = vm[e.v0];
+				auto& pair0 = vm.insert({ e.v0, 0 });
+				auto& v0 = pair0.first->first;
+				auto& idx0 = pair0.first->second;
 				{
 					// if(e.v0 not inside map) new idx
 					if (idx0 == 0)
@@ -180,7 +236,9 @@ djkCalc::buildGraph
 					}
 				}
 
-				auto& idx1 = vm[e.v1];
+				auto& pair1 = vm.insert({ e.v1, 0 });
+				auto& v1 = pair1.first->first;
+				auto& idx1 = pair1.first->second;
 				{
 					// if(e.v1 not inside map) new idx
 					if (idx1 == 0)
@@ -208,23 +266,50 @@ djkCalc::buildGraph
 					el.emplace_back(idx0, idx1);
 
 					// iv. ew
-					Weight w;
-					{
-						//
-						w = (e.v0 - e.v1).length1();
-					}
+					Weight w = findWeight(v0, v1, frw, degree);
+					//Weight w = findWeight(e.v0, e.v1, frw);
+					//Weight w;
+					//{
+					//	//
+					//	w = (e.v0 - e.v1).length1();
+					//}
 					ew.push_back(w);
 
 					// v. et
-					et.push_back(etVor);
+					et.push_back(etOff);
 				}
 			}
 
 			// 1-3. offset connector
 			for (auto& e : ocn[sn])
 			{
+				//// i. vm & pl & cl (new)
+				//auto& idx0 = vm[e.v0];
+				//{
+				//	// if(e.v0 not inside map) new idx
+				//	if (idx0 == 0)
+				//	{
+				//		idx0 = vm.size();
+				//		pl.push_back(e.v0);
+				//		cl.push_back(e.clr0());
+				//	}
+				//}
+				//
+				//auto& idx1 = vm[e.v1];
+				//{
+				//	// if(e.v1 not inside map) new idx
+				//	if (idx1 == 0)
+				//	{
+				//		idx1 = vm.size();
+				//		pl.push_back(e.v1);
+				//		cl.push_back(e.clr1());
+				//	}
+				//}
+
 				// i. vm & pl & cl (new)
-				auto& idx0 = vm[e.v0];
+				auto& pair0 = vm.insert({ e.v0, 0 });
+				auto& v0 = pair0.first->first;
+				auto& idx0 = pair0.first->second;
 				{
 					// if(e.v0 not inside map) new idx
 					if (idx0 == 0)
@@ -235,7 +320,9 @@ djkCalc::buildGraph
 					}
 				}
 
-				auto& idx1 = vm[e.v1];
+				auto& pair1 = vm.insert({ e.v1, 0 });
+				auto& v1 = pair1.first->first;
+				auto& idx1 = pair1.first->second;
 				{
 					// if(e.v1 not inside map) new idx
 					if (idx1 == 0)
@@ -263,23 +350,50 @@ djkCalc::buildGraph
 					el.emplace_back(idx0, idx1);
 
 					// iv. ew
-					Weight w;
-					{
-						//
-						w = (e.v0 - e.v1).length1();
-					}
+					Weight w = findWeight(v0, v1, frw, degree);
+					//Weight w = findWeight(e.v0, e.v1, frw);
+					//Weight w;
+					//{
+					//	//
+					//	w = (e.v0 - e.v1).length1();
+					//}
 					ew.push_back(w);
 
 					// v. et
-					et.push_back(etVor);
+					et.push_back(etOcn);
 				}
 			}
 
 			// 1-4. common tangent
 			for (auto& e : tan[sn])
 			{
+				//// i. vm & pl & cl (new)
+				//auto& idx0 = vm[e.v0];
+				//{
+				//	// if(e.v0 not inside map) new idx
+				//	if (idx0 == 0)
+				//	{
+				//		idx0 = vm.size();
+				//		pl.push_back(e.v0);
+				//		cl.push_back(e.clr0());
+				//	}
+				//}
+				//
+				//auto& idx1 = vm[e.v1];
+				//{
+				//	// if(e.v1 not inside map) new idx
+				//	if (idx1 == 0)
+				//	{
+				//		idx1 = vm.size();
+				//		pl.push_back(e.v1);
+				//		cl.push_back(e.clr1());
+				//	}
+				//}
+
 				// i. vm & pl & cl (new)
-				auto& idx0 = vm[e.v0];
+				auto& pair0 = vm.insert({ e.v0, 0 });
+				auto& v0 = pair0.first->first;
+				auto& idx0 = pair0.first->second;
 				{
 					// if(e.v0 not inside map) new idx
 					if (idx0 == 0)
@@ -290,7 +404,9 @@ djkCalc::buildGraph
 					}
 				}
 
-				auto& idx1 = vm[e.v1];
+				auto& pair1 = vm.insert({ e.v1, 0 });
+				auto& v1 = pair1.first->first;
+				auto& idx1 = pair1.first->second;
 				{
 					// if(e.v1 not inside map) new idx
 					if (idx1 == 0)
@@ -318,23 +434,50 @@ djkCalc::buildGraph
 					el.emplace_back(idx0, idx1);
 
 					// iv. ew
-					Weight w;
-					{
-						//
-						w = (e.v0 - e.v1).length1();
-					}
+					Weight w = findWeight(v0, v1, frw, degree);
+					//Weight w = findWeight(e.v0, e.v1, frw);
+					//Weight w;
+					//{
+					//	//
+					//	w = (e.v0 - e.v1).length1();
+					//}
 					ew.push_back(w);
 
 					// v. et
-					et.push_back(etVor);
+					et.push_back(etTan);
 				}
 			}
 
 			// 1-5. common tangent connectors
 			for (auto& e : tcn[sn])
 			{
+				//// i. vm & pl & cl (new)
+				//auto& idx0 = vm[e.v0];
+				//{
+				//	// if(e.v0 not inside map) new idx
+				//	if (idx0 == 0)
+				//	{
+				//		idx0 = vm.size();
+				//		pl.push_back(e.v0);
+				//		cl.push_back(e.clr0());
+				//	}
+				//}
+				//
+				//auto& idx1 = vm[e.v1];
+				//{
+				//	// if(e.v1 not inside map) new idx
+				//	if (idx1 == 0)
+				//	{
+				//		idx1 = vm.size();
+				//		pl.push_back(e.v1);
+				//		cl.push_back(e.clr1());
+				//	}
+				//}
+
 				// i. vm & pl & cl (new)
-				auto& idx0 = vm[e.v0];
+				auto& pair0 = vm.insert({ e.v0, 0 });
+				auto& v0 = pair0.first->first;
+				auto& idx0 = pair0.first->second;
 				{
 					// if(e.v0 not inside map) new idx
 					if (idx0 == 0)
@@ -345,7 +488,9 @@ djkCalc::buildGraph
 					}
 				}
 
-				auto& idx1 = vm[e.v1];
+				auto& pair1 = vm.insert({ e.v1, 0 });
+				auto& v1 = pair1.first->first;
+				auto& idx1 = pair1.first->second;
 				{
 					// if(e.v1 not inside map) new idx
 					if (idx1 == 0)
@@ -373,15 +518,17 @@ djkCalc::buildGraph
 					el.emplace_back(idx0, idx1);
 
 					// iv. ew
-					Weight w;
-					{
-						//
-						w = (e.v0 - e.v1).length1();
-					}
+					Weight w = findWeight(v0, v1, frw, degree);
+					//Weight w = findWeight(e.v0, e.v1, frw);
+					//Weight w;
+					//{
+					//	//
+					//	w = (e.v0 - e.v1).length1();
+					//}
 					ew.push_back(w);
 
 					// v. et
-					et.push_back(etVor);
+					et.push_back(etTcn);
 				}
 			}
 		}
@@ -400,6 +547,8 @@ djkCalc::buildGraph
 			auto snn = sn + 1;
 			if (snn == ns)
 				snn = 0;
+
+			auto degree = double(2 * sn + 1) / 2.0 / ns * 360.0;
 
 			//cout << COUT(sn) << COUT(snn) << endl;
 
@@ -427,7 +576,8 @@ djkCalc::buildGraph
 				{
 					edg.push_back(make_pair(i, j));
 					
-					Weight w = d;
+					//Weight w = d;
+					Weight w = findWeight(v0[i], v1[j], frw, degree) * djkInterSliceWeightMultiplier;
 					wgt.push_back(w);
 
 					////dbg_out
@@ -479,7 +629,7 @@ djkCalc::buildGraph
 	//map<Edge, int> edgeInvMap;
 	vector<Edge>&	edge	= _edge;
 	vector<Weight>&	weight	= _weight;
-	//vector<EdgeType> etype;
+	vector<EdgeType>& etype = _etype;
 	{
 		edge.clear();
 		weight.clear();
@@ -498,7 +648,7 @@ djkCalc::buildGraph
 			{
 				edge.emplace_back(trn + el[i].first, trn + el[i].second);
 				weight.push_back(ew[i]);
-				//etype.push_back(et[i]);
+				etype.push_back(et[i]);
 
 				////dbg_out : e with idx -1
 				//if (trn + el[i].first == -1)
@@ -534,6 +684,7 @@ djkCalc::buildGraph
 				{
 					edge.emplace_back(trn0 + el[i].first, trn1 + el[i].second);
 					weight.push_back(wl[i]);
+					etype.push_back(gs::etIsc);
 
 					////dbg_out : e with idx -1
 					//if (trn0 + el[i].first == -1)
@@ -630,7 +781,9 @@ djkCalc::buildGraph
 
 
 /*
-
+Def:
+	1. finds closest point to start/end in graph
+	2. do dijk from those points.
 Assume:
 	start/end is each in some slice (that was calculated)
 	start != end
@@ -738,10 +891,14 @@ djkCalc::searchGraph
 
 	reverse(path.begin(), path.end());
 
-	//debug
+	//debug dbg_out
 	if(1)
 	{
 		using namespace boost;
+
+		cout << COUT(_edge.size()) << endl;
+		cout << COUT(_weight.size()) << endl;
+		cout << COUT(_etype.size()) << endl;
 
 		double d0 = dist[vie];
 		double d1 = 0.0;
@@ -782,7 +939,10 @@ djkCalc::searchGraph
 			auto weight_calc = sqrt((dv.x() * dv.x()) + (dv.y() * dv.y()));
 			d1 += weight_calc;
 
-			cout << i << ": wo wg wc : " << weight_orig << "   " << weight_g << " " << weight_calc << endl;
+			bool allEQ = false;
+			if (abs(weight_orig - weight_g) < 1e-4 && abs(weight_orig - weight_calc) < 1e-4)
+				allEQ = true;
+			cout << i << ": wo wg wc : "<<allEQ <<" type:" << _etype[eidxOrig] << "   " << weight_orig << "   " << weight_g << " " << weight_calc << endl;
 			// conc : weight is wrongly set at build graph
 		}
 
@@ -873,3 +1033,203 @@ djkCalc::searchGraph
 //		}
 //	}
 //}
+
+/*
+Def:
+	similar to searchGraph, but the robot rotates near start/end
+Assume:
+	start/end is each in some slice (that was calculated)
+	start != end
+Return:
+	0 : no path
+	1 : path exists
+*/
+int
+djkCalc::searchGraph2
+(
+	xyt& _in_start,
+	xyt& _in_end,
+	vector<int>& _out_path
+)
+{
+	// alias
+	auto& start = _in_start;
+	auto& end = _in_end;
+	auto& path = _out_path;
+
+	int ns = _vertIdx.size() - 1;		// No. of slice
+	int sz = start.t() / 360.0 * ns;	// sliceNo of start
+	int ez = end.t() / 360.0 * ns;		// sliceNo of end
+
+	// 1. find closest ver to start
+
+	int vis, vie; //vertex index start/end 
+	{
+		xyt p = start;
+		double minDist = 1.0e10;
+		double minVert = -1;
+
+		// for (all vert in same slice) find closest & clear vert
+		for (int i = _vertIdx[sz]; i < _vertIdx[sz + 1]; i++)
+		{
+			auto& v = _vert[i];
+			auto& c = _clearance[i];
+
+			auto dx = p.x() - v.x();
+			auto dy = p.y() - v.y();
+			auto dist = sqrt(dx * dx + dy * dy);
+
+			// if(p is inside clearance of v && dist updatable)
+			if (dist < c && dist < minDist)
+			{
+				minVert = i;
+				minDist = dist;
+			}
+		}
+
+		if (minVert == -1)
+			return false;
+		else
+			vis = minVert;
+	}
+	{
+		xyt p = end;
+		double minDist = 1.0e+10;
+		double minVert = -1;
+
+		// for (all vert in same slice) find closest & clear vert
+		for (int i = _vertIdx[ez]; i < _vertIdx[ez + 1]; i++)
+		{
+			auto& v = _vert[i];
+			auto& c = _clearance[i];
+
+			auto dx = p.x() - v.x();
+			auto dy = p.y() - v.y();
+			auto dist = sqrt(dx * dx + dy * dy);
+
+			// if(p is inside clearance of v && dist updatable)
+			if (dist < c && dist < minDist)
+			{
+				minVert = i;
+				minDist = dist;
+			}
+		}
+
+		if (minVert == -1)
+			return false;
+		else
+			vie = minVert;
+	}
+
+	// 2. do graph search
+	Vdesc			sv = boost::vertex(vis, _graph);
+	vector<Weight>	dist(boost::num_vertices(_graph));
+	vector<Vdesc>	pred(boost::num_vertices(_graph));
+
+	boost::dijkstra_shortest_paths(_graph, sv, boost::predecessor_map(&pred[0]).distance_map(&dist[0]));
+
+	// 3. return 
+	//if(end point not reachable)
+	if (pred[vie] == vie)
+		return false;
+
+	// follow pred and build path
+	int cur = vie;
+	while (cur != vis)
+	{
+		path.push_back(cur);
+		cur = pred[cur];
+	}
+	path.push_back(vis);
+
+	reverse(path.begin(), path.end());
+
+	//debug
+	if (1)
+	{
+		using namespace boost;
+
+		double d0 = dist[vie];
+		double d1 = 0.0;
+		for (int i = 0; i < path.size() - 1; i++)
+		{
+			int in = i + 1;
+			int idx0 = path[i];  //vertIdx;
+			int idx1 = path[in]; //vertIdx;
+
+			// weight in graph
+			Vdesc vd0 = vertex(idx0, _graph);
+			Vdesc vd1 = vertex(idx1, _graph);
+			auto edt = edge(vd0, vd1, _graph);
+			Edesc ed = edt.first;
+			auto weight_g = get(edge_weight, _graph, ed);
+
+			// weight before making graph
+			int eidxOrig = -1;
+			for (int i = 0; i < _edge.size(); i++)
+			{
+				if (_edge[i].first == idx0 && _edge[i].second == idx1)
+				{
+					eidxOrig = i;
+					break;
+				}
+				if (_edge[i].first == idx1 && _edge[i].second == idx0)
+				{
+					eidxOrig = i;
+					break;
+				}
+			}
+			auto weight_orig = _weight[eidxOrig];
+
+			auto& v0 = _vert[idx0];
+			auto& v1 = _vert[idx1];
+			auto dv = v0 - v1;
+
+			auto weight_calc = sqrt((dv.x() * dv.x()) + (dv.y() * dv.y()));
+			d1 += weight_calc;
+
+			cout << i << ": wo wg wc : " << weight_orig << "   " << weight_g << " " << weight_calc << endl;
+			// conc : weight is wrongly set at build graph
+		}
+
+		// _weight (right before graph)
+		// boost (current graph)
+		// sqrt(dP)
+		// 
+
+		cout << COUT(d0) << endl;
+		cout << COUT(d1) << endl;
+	}
+
+	return true;
+}
+
+/*
+Def:
+	multiplier constant representing non-holo
+Assume:
+	p != q
+*/
+gs::Weight djkCalc::nhMultiplier(const Point& p, const Point& q, Point& forward, double sliceDegree)
+{
+	auto dot = (p - q).normalize() * forward.rotate(sliceDegree / 360.0 * PI2);
+	//auto theta = acos(dot);
+	//auto degree = theta * 180.0 / PI;
+	//auto flr = floor(degree / 10.0);
+	//return flr + 1.0;
+
+	//// if (angle < 25 deg)
+	//if (abs(dot) > 0.90)
+	//	return 1.0;
+	//else
+	//	return 1e100;
+
+	return floor(((1 - abs(dot)) * 10.0)) + 1.0;
+}
+
+gs::Weight djkCalc::findWeight(const Point& p, const Point& q, Point& forward, double sliceDegree)
+{
+	auto len = (p - q).length1();
+	return len;
+	return nhMultiplier(p, q, forward, sliceDegree) * len;
+}

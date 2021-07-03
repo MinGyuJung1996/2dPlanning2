@@ -1194,8 +1194,16 @@ namespace graphSearch
 		auto gt0 = clock();
 		dijk.buildGraph(ms::numofframe, vorBackup, offCso, offCon, comTan, comTanCon, robotForward);
 		auto gt1 = clock();
+		cout << COUT(robotForward) << endl;
 		cout << "Dijk init time : "
 			<< double(gt1 - gt0) / 1000 << "s" << endl;
+		{
+			auto gt0 = clock();
+			auto dijk2 = dijk.getGraph();
+			auto gt1 = clock();
+			cout << "Dijk copy time : "
+				<< double(gt1 - gt0) / 1000 << "s" << endl;
+		}
 
 
 		///* test if result is same : print all v-edges to file and compare it*/
@@ -1374,6 +1382,7 @@ namespace graphSearch
 			//	}
 			//}
 		}
+
 		ms::renderPath(argc, argv, renderedPath);
 
 		return 0;

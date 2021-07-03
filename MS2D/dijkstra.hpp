@@ -4,6 +4,15 @@
 #include <boost/graph/dijkstra_shortest_paths.hpp>
 #include "xyt-cs.hpp"
 
+/*
+Tweakables
+
+PointCompare
+sliceConnection
+non-holo mult
+*/
+
+
 namespace ms
 {
 	class Point;
@@ -61,7 +70,11 @@ namespace graphSearch
 		etOcn = 2, // connection: vor - off
 		etTan = 3, // common tangnet
 		etTcn = 4, // connection : tan - (others)
-		etIsc = 5  // InterSliceConnection
+		etIsc = 5,  // InterSliceConnection
+		etStrVer = 6, // starting pt vertical   edge
+		etStrHor = 7, // starting pt horizontal edge
+		etEndVer = 8, // ending   pt vertical   edge
+		etEndHor = 9  // ending   pt horizontal   edge
 	};
 
 	/*
@@ -100,7 +113,8 @@ namespace graphSearch
 namespace gs = graphSearch;
 
 #define djkUseInterSliceBound true
-#define djkInterSliceBound 0.01
+#define djkInterSliceBound 0.1
+#define djkInterSliceWeightMultiplier 1.2
 //#define ptEqdist // currently static double of PointCompare
 class djkCalc
 {
@@ -112,12 +126,15 @@ class djkCalc
 	using Vdesc  = gs::Vdesc;
 	using Edesc  = gs::Edesc;
 
+	using EdgeType = gs::EdgeType;
+
 private:
 
 	Graph			_graph;
 
 	vector<Edge>	_edge;
 	vector<Weight>	_weight;
+	vector<EdgeType>_etype;
 
 	vector<xyt>		_vert;
 	vector<double>  _clearance;
@@ -168,6 +185,14 @@ public:
 			xyt& _in_end,
 			vector<int>& _out_path
 		);
+	
+	int
+	searchGraph2
+		(
+			xyt& _in_start,
+			xyt& _in_end,
+			vector<int>& _out_path
+		);
 
 private:
 	//inline Weight wgtVor(Point& p, Point& q, Point& forward) { return (p - q).length1(); }
@@ -194,7 +219,8 @@ private:
 	//	vector<gs::EdgeType>&				_out_et
 	//	);
 
-
+	Weight nhMultiplier(const Point& p, const Point& q, Point& forward, double sliceDegree);
+	Weight findWeight  (const Point& p, const Point& q, Point& forward, double sliceDegree);
 
 };
 
