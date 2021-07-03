@@ -5,8 +5,10 @@
 #include "collision detection.hpp"
 #include "AStarOnVorDiag.h"
 #include "support.hpp"
+#include "dijkstra.hpp"
 
 #define derr cerr
+#define COUT(x) #x " : " << x
 
 planning::coneVoronoi coneVor;
 
@@ -25,6 +27,8 @@ namespace graphSearch
 	extern std::vector<decltype(ms::Model_Result)>				offsetMRs	;	// data collected for checking
 	extern std::vector<decltype(ms::ModelInfo_Boundary)>		offsetMIBs	; // data collected for checking
 	extern std::vector<decltype(ms::InteriorDisks_Convolution)>	offsetIDC	;  // save conv/disk
+
+	extern djkCalc dijk;
 }
 
 void
@@ -2057,6 +2061,11 @@ namespace ms {
 			if (pathIdx < 0) pathIdx = pathSize - 1;
 
 			cout << "Current PathIdx : " << pathIdx << endl;
+			if (pathIdx < mcPath.size() && pathIdx >= 0)
+				cout 
+				<< "   " << mcPath[pathIdx].x 
+				<< "   " << mcPath[pathIdx].y 
+				<< "   " << mcPath[pathIdx].z << endl;
 
 			glutPostRedisplay();
 		};
@@ -2199,7 +2208,7 @@ namespace ms {
 
 			// 8. robot following path
 			glColor3f(0, 0, 0);
-			if(pathType == 0)
+			if(pathType == 1)
 			if(pathIdx < arcPathTess.size())
 			{
 				auto& robot = Models_Approx[robotIdx];
@@ -2215,7 +2224,7 @@ namespace ms {
 				glVertex3d(translation.P[0], translation.P[1], -0.5);
 				glEnd();
 			}
-			if (pathType == 1)
+			if (pathType == 0 && (pathIdx >= 0 && pathIdx < mcPath.size()))
 			{
 				auto& robot = Models_Approx[robotIdx];
 				Point translation(mcPath[pathIdx].x, mcPath[pathIdx].y);
@@ -2239,8 +2248,8 @@ namespace ms {
 				{
 					glColor3f(1, 0.8, 0.8);
 					auto& robot = Models_Approx[robotIdx];
-					Point translation(arcPathTess.front().x, arcPathTess.front().y);
-					double rotationDegree = arcPathTess.front().z;
+					Point translation(mcPath.front().x, mcPath.front().y);
+					double rotationDegree = mcPath.front().z;
 					for (auto& as : robot)
 						for (auto& arc : as.Arcs)
 						{
@@ -2256,8 +2265,8 @@ namespace ms {
 				{
 					glColor3f(0.8, 0.8, 1);
 					auto& robot = Models_Approx[robotIdx];
-					Point translation(arcPathTess.back().x, arcPathTess.back().y);
-					double rotationDegree = arcPathTess.back().z;
+					Point translation(mcPath.back().x, mcPath.back().y);
+					double rotationDegree = mcPath.back().z;
 					for (auto& as : robot)
 						for (auto& arc : as.Arcs)
 						{
@@ -2267,6 +2276,94 @@ namespace ms {
 					glBegin(GL_POINTS);
 					glVertex3d(translation.P[0], translation.P[1], -0.5);
 					glEnd();
+				}
+			}
+
+			if (Key('5'))
+			{
+				using namespace gs;
+				// draw all edges in graph
+				auto& e = dijk.getEdge();
+				auto& v = dijk.getVert();
+
+				glBegin(GL_LINES);
+				for (auto& e0 : e)
+				{
+					auto& v0 = v[e0.first];
+					auto& v1 = v[e0.second];
+					glVertex2d(v0.x(), v0.y());
+					glVertex2d(v1.x(), v1.y());
+				}
+				glEnd();
+			}
+
+			// if(6) draw single-slice-edge
+			if (Key('6'))
+			{
+				using namespace gs;
+				for (int sn = 0; sn < dijk._vMat.size(); sn++)
+				{
+					auto& v = dijk._vMat[sn];
+					auto& e = dijk._eMat[sn];
+
+					glBegin(GL_LINES);
+					for (auto& e0 : e)
+					{
+						auto& v0 = v[e0.first];
+						auto& v1 = v[e0.second];
+						glVertex2d(v0.x(), v0.y());
+						glVertex2d(v1.x(), v1.y());
+					}
+					glEnd();
+				}
+			}
+
+			// if(7) draw interslice edge
+			if (Key('7'))
+			{
+				using namespace gs;
+				for (int sn = 0; sn < dijk._vMat.size(); sn++)
+				{
+					auto snn = sn + 1;
+					if (snn == dijk._vMat.size())
+						snn = 0;
+
+					auto& v = dijk._vMat[sn];
+					auto& v2 = dijk._vMat[snn];
+					auto& e = dijk._eMat2[sn];
+
+					//double max = -1.0;
+
+					int i = 0;
+					glBegin(GL_LINES);
+					for (auto& e0 : e)
+					{
+						auto& v0 = v[e0.first];
+						auto& v1 = v2[e0.second];
+						glVertex2d(v0.x(), v0.y());
+						glVertex2d(v1.x(), v1.y());
+
+						////dbg_out
+						//{
+						//	//auto d = (v0 - v1).length1();
+						//	auto d = dijk._wMat[sn][i];
+						//	if (d > max)
+						//		max = d;
+						//}
+
+						//if (i == 0)
+						//{
+						//	cout << COUT(sn) << endl;
+						//	cout << COUT(e0.first) << endl;
+						//	cout << COUT(e0.second) << endl;
+						//	cout << COUT(v0) << endl;
+						//	cout << COUT(v1) << endl;
+						//}
+						//i++;
+					}
+					glEnd();
+					//cout << " longest interslice length: " << max << endl;
+
 				}
 			}
 
@@ -2426,35 +2523,90 @@ namespace ms {
 						
 						
 						// ii. run a-star
-						std::vector<Vertex> path = invoke_AStar(theGr, vecVertices, mapLookup, ver0, ver1);
-						
-						// path : approx biarc
-						arcPath.clear();
-						arcPathRot.clear();
-						refinePathBiarc(path, 10, arcPath, arcPathRot);
-						//dbg_out
+						std::vector<Vertex> path;
+						bool useDijk = true;
+						if (useDijk)
 						{
-							for (auto a : arcPath)
-								cout << "AP : " << a.x0() << "   " << a.x1() << endl;
+							vector<int> vertIdxList;
+							xyt 
+								s(sx, sy, sz), 
+								e(ex, ey, ez);
 
-							for (auto a : arcPath)
-								cout << "AP norm : " << a.n0() << "   " << a.n1() << endl;
+							// if(path exists)
+							if (gs::dijk.searchGraph(s, e, vertIdxList))
+							{
+								Vertex sv(sx, sy, sz);
+								Vertex ev(ex, ey, ez);
+
+								path.push_back(sv);
+								for (auto i : vertIdxList)
+								{
+									auto& v = gs::dijk.getVert()[i];
+									
+									Vertex temp;
+									temp.x = v.x();
+									temp.y = v.y();
+									temp.z = v.t();
+									path.push_back(temp);
+								}
+								path.push_back(ev);
+
+								// debug out
+								int i = 0;
+								for (auto& p : path)
+								{
+									cout << "dijk path: "<< i << ":" << p.x << " , " << p.y << " , " << p.z << endl;
+									i++;
+								}
+
+							}
+							else
+							{
+								cout << "Dijkstra: no path" << endl;
+								auto t0 = std::chrono::high_resolution_clock::now();
+								auto t1 = t0;
+								auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+								while (ms < 1000.0)
+								{
+									t1 = std::chrono::high_resolution_clock::now();
+									ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+								}
+							}
 						}
+						else
+							path = invoke_AStar(theGr, vecVertices, mapLookup, ver0, ver1);
 						
-						// path : tess
-						arcPathTess.clear();
-						tessPathBiarc(arcPath, arcPathRot, 0.004, arcPathTess);
-						pathSize = arcPathTess.size();
-						pathIdx = 0;
+						if(false)
+						{
+							// path : approx biarc
+							arcPath.clear();
+							arcPathRot.clear();
+							refinePathBiarc(path, 10, arcPath, arcPathRot);
+							//dbg_out
+							{
+								for (auto a : arcPath)
+									cout << "AP : " << a.x0() << "   " << a.x1() << endl;
 
-						// path : 
-						//tessPathAlignTheta(arcPathTess, graphSearch::testers2, Point(0, 1));
+								for (auto a : arcPath)
+									cout << "AP norm : " << a.n0() << "   " << a.n1() << endl;
+							}
+
+							// path : tess
+							arcPathTess.clear();
+							tessPathBiarc(arcPath, arcPathRot, 0.004, arcPathTess);
+							pathSize = arcPathTess.size();
+							pathIdx = 0;
+
+							// path : 
+							//tessPathAlignTheta(arcPathTess, graphSearch::testers2, Point(0, 1));
+						}
 
 						// save mcPath
 						pathGraphSearch = path;
 						mcPath.clear();
 						tessPathClear(path, 0.004, mcPath);
-
+						pathSize = mcPath.size();
+						pathType = 0;
 
 						{
 						//// iii. do refinement.

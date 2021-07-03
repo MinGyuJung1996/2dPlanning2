@@ -22,7 +22,7 @@ Point ADT used:
 	y()
 */
 
-using real = double; // just in case there is a need for a higher-precision-fp-lib
+using Real = double; // just in case there is a need for a higher-precision-fp-lib
 
 
 /*
@@ -43,7 +43,7 @@ public:
 	// constructor/desturctor
 	xyt() = default;
 	~xyt() = default;
-	inline xyt(real x, real y, real t) : _x(x), _y(y), _t(t) {}
+	inline xyt(Real x, Real y, Real t) : _x(x), _y(y), _t(t) {}
 	
 	// operator overloading
 	inline xyt operator+(xyt& rhs)
@@ -58,16 +58,18 @@ public:
 	{
 		return { this->x() * rhs, this->y() * rhs, this->t() * rhs };
 	}
+	friend inline xyt operator*(double lhs, xyt& rhs); 
 	inline xyt operator/(double rhs)
 	{
 		double m = 1 / rhs;
 		return { this->x() * m, this->y() * m, this->t() * m };
 	}
-	friend inline xyt operator*(double lhs, xyt& rhs);
+
 	inline xyt operator-()
 	{
 		return { -this->x(), -this->y(), -this->t()};
 	}
+
 	// math
 	inline xyt cross(xyt rhs)
 	{
@@ -229,7 +231,7 @@ public:
 	vector<triNormal>* 
 		drawingSet();
 	CircularArc 
-		slice(real theta);
+		slice(Real theta);
 
 private:
 	/* FLAGS */
@@ -240,12 +242,12 @@ private:
 	/* Var for equation of the surface */
 	Point	_center0;
 	Point	_center1;	// circle center at theta : _center0 + _center1.rotate(theta)
-	real	_rad;		// rad = r1+r2 (for now, convex only)
+	Real	_rad;		// rad = r1+r2 (for now, convex only)
 
 	/* Var for domain of the surface */
 	// domain : {phi0 < \phi < phi1 } \and {tmp0 < \theta - \phi < tmp1}
 	//		=> a band with grad = 1 in phi-theta space;
-	real
+	Real
 		_phi0,
 		_phi1,
 		_tmp0,

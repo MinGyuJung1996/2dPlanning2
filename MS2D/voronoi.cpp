@@ -1607,8 +1607,21 @@ namespace planning
 	pair<CircularArc, CircularArc> subdivCircularArc(CircularArc& c, double t)
 	{
 		pair<CircularArc, CircularArc> ret;
-		ret.first  = c;
+		ret.first = c;
 		ret.second = c;
+
+		// trivial case
+		if (t <= 0.0)
+		{
+			ret.first.x1() = ret.first.x0();
+			ret.first.n1() = ret.first.n0();
+		}
+		if (t >= 1.0)
+		{
+			ret.second.x0() = ret.second.x1();
+			ret.second.n0() = ret.second.n1();
+		}
+
 		Point n;
 		if (flag_vmqa)
 		{
@@ -2785,6 +2798,7 @@ namespace planning
 		0421 added flag_findMTD_concave_check: convex arcs won't get max-disk-rad bigger than itself
 	*/
 	double _h_fmdsp_g1 = 1e-8; //hyperParam, _epsilon
+	double _h_fmdsp_g1_line = 1e-3; //hyperParam, _epsilon
 	pointOnCurve findMaximalDiskSharingPoint(vector<CircularArc>& INPUT arcs, pointOnCurve INPUT poc, int INPUT left, int INPUT right)
 	{
 
@@ -2935,6 +2949,23 @@ namespace planning
 				if (piececnt == 205 && cur_depth == 3)
 					cerr << "in findMaximal, y b R " << y << " " << b << " " << R << endl;
 			}
+
+			////dbg_out :: when divisor is 0
+			//{
+			//	if ((zeroInsideCircle && abs(b - R) < 1e-100) || (!zeroInsideCircle && abs(b + R) < 1e-100))
+			//	{
+			//		cout.precision(20);
+			//		cout << "div0 at fmdsp: betwwen arcs with rad :" << arcs[i].cr() << " , " << arcs[j].cr() << "with ";
+			//		if (zeroInsideCircle)
+			//			cout << " b-R : " << std::scientific << b - R << endl;
+			//		else
+			//			cout << " b+R : " << std::scientific << b + R << endl;
+			//		cout << "-- y: " << y << endl;
+			//
+			//		
+			//	}
+			//
+			//}
 
 			// 2-6. compute normal of touching point & see if arc includes that normal
 			Point normal = p + y * n - arcs[j].c.c;
@@ -5577,6 +5608,9 @@ void
 Def : 
 	Returns a list of voronoiEdges for that cycle 
 	Do this in a recursive manner, so that if the cycle is too big, cut it and then evaluate it.
+Date:
+	2021
+		0630 changed endCondition : all arcs are small enough
 */
 retTypeFBR 
 	voronoiCalculator::findBisectorRecursively(std::vector<CircularArc>& cycle, int depth)
@@ -5683,9 +5717,12 @@ retTypeFBR
 			//draw(q);
 			terminal = true;
 		}
-		else if (sqlength(p00 - p01)<rfbTerminationEps)
-			terminal = true;
-		else if (sqlength(p10 - p11)<rfbTerminationEps)
+		//else if (sqlength(p00 - p01)<rfbTerminationEps)
+		//	terminal = true;
+		//else if (sqlength(p10 - p11)<rfbTerminationEps)
+		//	terminal = true;
+		// if both are below some eps
+		else if ((sqlength(p00 - p01) < rfbTerminationEps) && (sqlength(p10 - p11) < rfbTerminationEps))
 			terminal = true;
 		}
 
@@ -5703,7 +5740,7 @@ retTypeFBR
 		}
 
 		// 1-5. if the endpoints of a curve are too close, return. No more subdiv
-		if (_EpsArc(cycle[0]) || _EpsArc(cycle[1]))
+		if (_EpsArc(cycle[0]) && _EpsArc(cycle[1]))
 			return retTypeFBR();
 	}
 

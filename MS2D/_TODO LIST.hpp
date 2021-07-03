@@ -46,6 +46,17 @@ TODO LIST
 	=> Error in finding line intersection
 	=> rotate does not change "Point" itself, but normalize did.
 
-13. dijkstra 
-	
+14. dijkstra 
+
+15. better lib
+	Mink : AS line support (r = inf?)
+	Vor: cusp support( need to change transition map into line segments, to support stuff like interval [1.0, 1.0])
+	Polymorphism (point/vec) / (arc,line)
+
+16. bi5 ( ve with same arc Idx)
+	how?
+
+17. add func: see edges in motion planning
+18. fix robot animation
+19. how to make better start/end connection?
 */

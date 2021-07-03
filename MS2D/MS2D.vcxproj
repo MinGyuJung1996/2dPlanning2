@@ -156,6 +156,7 @@
   <ItemGroup>
     <ClInclude Include="collision detection.hpp" />
     <ClInclude Include="Commentated Notes About The Project.h" />
+    <ClInclude Include="dijkstra.hpp" />
     <ClInclude Include="MS2D.h" />
     <ClInclude Include="refine.hpp" />
     <ClInclude Include="stb.h" />
@@ -169,6 +170,7 @@
   <ItemGroup>
     <ClCompile Include="AStarOnVorDiag.cpp" />
     <ClCompile Include="collision detection.cpp" />
+    <ClCompile Include="dijkstra.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="main2.cpp" />
     <ClCompile Include="MS2D.cpp" />

@@ -23,6 +23,8 @@ std::vector<double> debugBlock;
 **																										   **
 *************************************************************************************************************/
 
+Point robotForward;
+
 /*
 Def : 
 	Read from CircularArc format
@@ -322,11 +324,13 @@ void initializeRobotObstacles(int RobotIdx, int ObstaclesIdx)
 		case 1:
 			path += "8/";
 			scaleFactor = 0.2;
+			robotForward = Point(1, 1).normalize();
 			break;
 		case 0:
 		default:
 			path += "rect/";
 			scaleFactor = 0.21;
+			robotForward = Point(0, 1);
 			break;
 		}
 		auto pathRsv	(path + "arcRSV.txt");
@@ -371,6 +375,8 @@ void initializeRobotObstacles(int RobotIdx, int ObstaclesIdx)
 
 	if (RobotIdx == 2)
 	{
+		robotForward = Point(0, 1);
+
 		using namespace std;
 		vector<CircularArc> arcObjectSq;
 		vector<Circle>	   circObjectSq;
@@ -477,8 +483,10 @@ void initializeRobotObstacles(int RobotIdx, int ObstaclesIdx)
 			readArcModel("Objects/Hex-shape-g1/arc.txt", "Objects/Hex-shape-g1/circ.txt", arcObjectTri, circObjectTri);
 
 			appendArcModel(sceneOriginal, sceneCircles, arcObjectSq, circObjectSq, 0.3, 0.5, Point(-0.36, -0.39));
-			appendArcModel(sceneOriginal, sceneCircles, arcObjectTri, circObjectTri, 0.3, -0.3, Point(+0.33, -0.45));
 			appendArcModel(sceneOriginal, sceneCircles, arcObjectL, circObjectL, 0.3, -0.3, Point(+0.30, +0.30));
+			//appendArcModel(sceneOriginal, sceneCircles, arcObjectTri, circObjectTri, 0.3, -0.3, Point(+0.30, -0.45));
+			//appendArcModel(sceneOriginal, sceneCircles, arcObjectPn, circObjectPn, 0.3, -5.3, Point(+0.30, -0.45));
+			appendArcModel(sceneOriginal, sceneCircles, arcObjectTri, circObjectTri, 0.5, -0.3, Point(+0.30, -0.45));
 
 			vbRad = 1.0;
 			break;
@@ -1042,6 +1050,12 @@ void tessPathAlignTheta(vector<Vertex>& pathTess, std::vector<cd::pointCollision
 	}
 }
 
+/*
+Def:
+
+Assume:
+	z = [0, 360)
+*/
 void tessPathClear(vector<Vertex>& in_path, double in_tessLen, vector<Vertex>& out_path)
 {
 	// 0. Alias
@@ -1064,6 +1078,20 @@ void tessPathClear(vector<Vertex>& in_path, double in_tessLen, vector<Vertex>& o
 
 		// 1. evaluate point
 		auto v = v0 * (1 - t) + v1 * t;
+		// if(z value diff > 180) //e.g. edge between 
+		if (abs(v0.z - v1.z) > 180.0)
+		{
+			auto z0 = v0.z;
+			auto z1 = v1.z;
+			if (z0 < z1)
+				z0 += 360.0;
+			else
+				z1 += 360.0;
+			auto zt = z0 * (1 - t) + z1 * t;
+			if (zt > 360.0)
+				zt -= 360.0;
+			v.z = zt;
+		}
 
 		// 2. push
 		out.push_back(v);

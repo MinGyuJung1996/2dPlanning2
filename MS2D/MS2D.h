@@ -31,6 +31,8 @@ namespace ms
 	extern double tx, ty;
 }
 
+extern ms::Point robotForward;
+
 void
 	readArcModel(const char* arcIn, const char* circIn, std::vector<ms::CircularArc>& arcOut, std::vector<ms::Circle>& circOut);
 void 
@@ -208,6 +210,9 @@ namespace ms {
 		inline double length2() { return P[0] * P[0] + P[1] * P[1]; }
 		inline double length1() { return sqrt(length2()); }
 		bool operator< (const Point& rhs) const;
+
+		inline double xc() const { return P[0]; } //const get x
+		inline double yc() const { return P[1]; } //const get y
 	};
 
 	/*!

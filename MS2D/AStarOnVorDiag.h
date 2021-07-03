@@ -23,7 +23,7 @@ using namespace boost;
 
 typedef pair<int, int>											Edge;
 typedef double                                                  Cost;
-typedef adjacency_list<listS, vecS, undirectedS, no_property,
+typedef adjacency_list<vecS, vecS, undirectedS, no_property,
 	property<edge_weight_t, Cost>>								Graph;
 typedef property_map<Graph, edge_weight_t>::type                WeightMap;
 typedef Graph::edge_descriptor                                  EdgeDescr;

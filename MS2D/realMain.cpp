@@ -4,6 +4,7 @@
 #include "AStarOnVorDiag.h"
 #include "collision detection.hpp"
 #include "support.hpp"
+#include "dijkstra.hpp"
 using namespace std;
 extern double vbRad;
 
@@ -239,6 +240,9 @@ namespace graphSearch
 	std::vector<decltype(ms::Model_Result)>					offsetMRs(ms::numofframe);	// data collected for checking
 	std::vector<decltype(ms::ModelInfo_Boundary)>			offsetMIBs(ms::numofframe); // data collected for checking
 	std::vector<decltype(ms::InteriorDisks_Convolution)>	offsetIDC(ms::numofframe);  // save conv/disk
+
+	djkCalc dijk;
+
 	/*
 	Def:
 		Computes Voronoi Edges for each slice, and store them in a vector<vector<v_edge>> v_edges.
@@ -301,7 +305,7 @@ namespace graphSearch
 					for (auto& b : a)
 						result.push_back(b);
 
-				//dbg
+				//dbg_out
 				if (i == 90)
 				{
 					Point q(0.705595, -0.49015);
@@ -326,6 +330,35 @@ namespace graphSearch
 							cout << "			" << cyc[j].size() << endl;
 							for (auto& arc : cyc[j])
 								cout << arc << endl;
+
+							auto ret = vc.findBisectorRecursively(cyc[j]);
+							cout << "Ret vEdge: " << endl;
+							VoronoiEdge v;
+							std::set<int> idx;
+							for (auto& r : ret)
+							{
+								auto& arc0 = VRINs[i].arcs[r.idx[0]];
+								auto& arc1 = VRINs[i].arcs[r.idx[1]];
+								auto clr00 = std::abs((arc0.cc() - v.v0).length1() - arc0.cr());
+								auto clr01 = std::abs((arc1.cc() - v.v0).length1() - arc1.cr());
+								auto clr10 = std::abs((arc0.cc() - v.v1).length1() - arc0.cr());
+								auto clr11 = std::abs((arc1.cc() - v.v1).length1() - arc1.cr());
+								cout << "  //  " << r.v0 << " - " << r.v1 << "  : "
+									<< "dC0: " << clr00 - clr01 << "  "
+									<< "dC1: " << clr10 - clr11 << "  "
+									<< COUT(r.idx[0]) << "  "
+									<< COUT(r.idx[1]) << "  "
+									<< endl;
+
+								idx.insert(r.idx[0]);
+								idx.insert(r.idx[1]);
+							}
+
+							for (auto id : idx)
+							{
+								cout << "arc " << id << endl;
+								cout << VRINs[i].arcs[id] << endl;
+							}
 						}
 					}
 				}
@@ -377,6 +410,9 @@ namespace graphSearch
 		cout << "collision tester init time : " 
 			//<< ms::numofframe << " : " 
 			<< double(cdInitEndTime - cdInitStartTime) / 1000 <<"s"<< endl;
+
+		vector<vector<lseg>> vorBackup; //dijkInput
+		vorBackup = planning::output_to_file::v_edges;
 
 		// 1-3. build offset curves.
 		auto offsetStartTime = clock();
@@ -459,6 +495,7 @@ namespace graphSearch
 				(v00, v10) or (v01, v11) might have intersection with csobs if minClr is small.
 				(+) line seg connecting start and closest-vor-pt might also have intersection.
 		*/
+		//dijkInput
 		vector<vector<lseg>> offCso(ms::numofframe); // Def: offset config-space-obs; offCso[sliceNo][segIdx]
 		vector<vector<lseg>> offCon(ms::numofframe); // def: offset connector(to voronoi)
 		int nOffIdx = 1;
@@ -481,6 +518,10 @@ namespace graphSearch
 				for  (int i = 0; i < ves.size(); i++)
 				{
 					auto& ve = ves[i];
+					
+					// if (error case)
+					if (ve.idx[0] == ve.idx[1])
+						continue;
 
 					// alias
 					auto& v0 = ve.v0;
@@ -511,14 +552,25 @@ namespace graphSearch
 						dir11 = -dir11;
 					}
 
+					// tag: clearance setting : vor
 					// check No. of valid endpoints
 					int nValid = 2;
 					auto& clr0 = ve.clr0();
-					clr0 = fabs(dist00 - arc0.cr());
+					clr0 = abs(dist00 - arc0.cr());
 					if (clr0 < minClr) nValid--;
 					auto& clr1 = ve.clr1();
-					clr1 = fabs(dist11 - arc1.cr());
+					clr1 = abs(dist11 - arc1.cr());
 					if (clr1 < minClr) nValid--;
+
+					//// check if this v_e is itself valid
+					//{
+					//	auto test0 = clr0 - abs(dist01 - arc1.cr());
+					//	if (abs(test0) > 1e-3)
+					//		continue;
+					//	auto test1 = clr1 - abs(dist10 - arc0.cr());
+					//	if (abs(test1) > 1e-3)
+					//		continue;
+					//}
 
 					// if both endpoints are valid => we are good to go.
 					// else take care
@@ -555,8 +607,47 @@ namespace graphSearch
 					off1.v0 = v01;
 					off1.v1 = v11;
 
+					// tag: clearance setting : off
+					off0.clr0() = minClr;
+					off0.clr1() = minClr;
+					off1.clr0() = minClr;
+					off1.clr1() = minClr;
+					
+
 					offCso[sn].push_back(off0);
 					offCso[sn].push_back(off1);
+
+					//dbg_out
+					{
+						if (sn == 168)
+						{
+							Point q(0.259044, -0.449798);
+							if (
+								(off0.v0 - q).length1() < 1e-2 ||
+								(off0.v1 - q).length1() < 1e-2 ||
+								(off1.v0 - q).length1() < 1e-2 ||
+								(off1.v1 - q).length1() < 1e-2
+								)
+							{
+								cout << "ERROR case:" << endl;
+								cout 
+									<< COUT(v0) << endl
+									<< COUT(v1) << endl;
+								cout
+									<< COUT(ve.idx[0]) << endl
+									<< COUT(ve.idx[1]) << endl;
+								cout
+									<< COUT(arc0) << endl
+									<< COUT(arc1) << endl;
+								cout
+									<< COUT(off0.v0) << endl
+									<< COUT(off0.v1) << endl
+									<< COUT(off1.v0) << endl
+									<< COUT(off1.v1) << endl;
+
+							}
+						}
+					}
 
 					// conn
 					if (inserted.find(v0) != inserted.end())
@@ -569,10 +660,14 @@ namespace graphSearch
 						con01.v0 = v0;
 						con01.v1 = v01;
 
+						// tag: clearance setting : ocn
+						con00.clr0() = clr0;
+						con00.clr1() = minClr;
+						con01.clr0() = clr0;
+						con01.clr1() = minClr;
+
 						offCon[sn].push_back(con00);
 						offCon[sn].push_back(con01);
-
-						
 					}
 					if (inserted.find(v1) != inserted.end())
 					{
@@ -583,6 +678,12 @@ namespace graphSearch
 						lseg con11;
 						con11.v0 = v1;
 						con11.v1 = v11;
+
+						// tag: clearance setting : ocn
+						con10.clr0() = clr1;
+						con10.clr1() = minClr;
+						con11.clr0() = clr1;
+						con11.clr1() = minClr;
 
 						offCon[sn].push_back(con10);
 						offCon[sn].push_back(con11);
@@ -714,6 +815,12 @@ namespace graphSearch
 						off1.v0 = vNew;
 						off1.v1 = v11;
 					}
+
+					// tag: clearance setting : off
+					off0.clr0() = minClr;
+					off0.clr1() = minClr;
+					off1.clr0() = minClr;
+					off1.clr1() = minClr;
 					
 					offCso[sn].push_back(off0);
 					offCso[sn].push_back(off1);
@@ -729,10 +836,14 @@ namespace graphSearch
 						con01.v0 = v0;
 						con01.v1 = v01;
 
+						// tag: clearance setting : ocn
+						con00.clr0() = clr0;
+						con00.clr1() = minClr;
+						con01.clr0() = clr0;
+						con01.clr1() = minClr;
+
 						offCon[sn].push_back(con00);
 						offCon[sn].push_back(con01);
-
-
 					}
 					if (!v0larger && (inserted.find(v1) != inserted.end()))
 					{
@@ -743,6 +854,12 @@ namespace graphSearch
 						lseg con11;
 						con11.v0 = v1;
 						con11.v1 = v11;
+
+						// tag: clearance setting : ocn
+						con10.clr0() = clr1;
+						con10.clr1() = minClr;
+						con11.clr0() = clr1;
+						con11.clr1() = minClr;
 
 						offCon[sn].push_back(con10);
 						offCon[sn].push_back(con11);
@@ -829,6 +946,7 @@ namespace graphSearch
 
 		// WARNING:
 		// simply add offset to vorEdges
+		if(true)
 		{
 			auto& ves = planning::output_to_file::v_edges;
 			for (int i = 0; i < ms::numofframe; i++)
@@ -844,6 +962,8 @@ namespace graphSearch
 			<< double(offsetEndTime - offsetStartTime) / 1000 << "s" << endl;
 
 		// 4. add comTan;
+		vector<vector<lseg>> comTan(ms::numofframe);	//dijkInput
+		vector<vector<lseg>> comTanCon(ms::numofframe);	//dijkInput
 		{
 			auto& ves = planning::output_to_file::v_edges;
 			for (int sn = 0; sn < ms::numofframe; sn++)
@@ -898,7 +1018,6 @@ namespace graphSearch
 						p0 = p1;
 						p1 = temp;
 					}
-					// TODO : NEED OPTIMIZATION : var related to p1, p1 can be here
 					double a0, b0, c0; // ax + by + c = 0
 					auto d0 = p1 - p0; // direction0
 					d0 = d0.rotate();
@@ -906,19 +1025,6 @@ namespace graphSearch
 					b0 = d0.y();
 					c0 = -(d0 * p0);
 
-					//Line l0(p0, p1);
-
-					////dbg
-					//{
-					//	//v_edge temp;
-					//	//temp.v0 = p0;
-					//	//temp.v1 = p1;
-					//	//ves[sn].push_back(temp);
-					//	//continue;
-					//	cout << COUT(p0) << "     " << COUT(p1) << endl;
-					//}
-					//flag = 0;
-					////~dbg
 					static int flag = 0;
 
 
@@ -949,7 +1055,7 @@ namespace graphSearch
 							z = a0 * b1 - a1 * b0;
 
 							if (abs(z) < 1e-100) {
-								cout << "Too small: " << COUT(z) << endl;
+								//cout << "Too small: " << COUT(z) << endl;
 								continue;
 							}
 
@@ -1029,6 +1135,7 @@ namespace graphSearch
 							temp.v0 = v0;
 							temp.v1 = v1;
 							ves[sn].push_back(temp);
+							comTan[sn].push_back(temp);
 							connectIdx.insert(i);
 							connectIdx.insert(in);
 						}
@@ -1053,12 +1160,28 @@ namespace graphSearch
 						temp0.v1 = ve.v0;
 						temp1.v0 = v0;
 						temp1.v1 = ve.v1;
+
+						// tag: clearance setting : tcn
+						{
+							auto len0 = (v0 - ve.v0).length1();
+							auto len1 = (v0 - ve.v1).length1();
+							if (len0 + len1 < 1e-100)
+								continue;
+							auto clr = (len0 * ve.clr1() + len1 * ve.clr0()) / (len0 + len1);
+							temp0.clr0() = clr;
+							temp0.clr1() = ve.clr0();
+							temp1.clr0() = clr;
+							temp1.clr1() = ve.clr1();
+						}
+
 						
 						////dbg
 						//continue;
 
 						ves[sn].push_back(temp0);
 						ves[sn].push_back(temp1);
+						comTanCon[sn].push_back(temp0);
+						comTanCon[sn].push_back(temp1);
 						//cnt1++;
 					}
 
@@ -1067,6 +1190,12 @@ namespace graphSearch
 			}
 
 		}
+
+		auto gt0 = clock();
+		dijk.buildGraph(ms::numofframe, vorBackup, offCso, offCon, comTan, comTanCon, robotForward);
+		auto gt1 = clock();
+		cout << "Dijk init time : "
+			<< double(gt1 - gt0) / 1000 << "s" << endl;
 
 
 		///* test if result is same : print all v-edges to file and compare it*/
@@ -1087,7 +1216,7 @@ namespace graphSearch
 		std::vector<std::vector<v_edge>>&
 			v_edges = planning::output_to_file::v_edges;
 
-		if (1)
+		if (0)
 		{
 			_h_fmdsp_g1 = 1e-3;
 			ms::renderMinkVoronoi(argc, argv, MRs, MIBs, v_edges, planning::voronoiBoundary);
@@ -1095,154 +1224,156 @@ namespace graphSearch
 		}
 		auto gsInitStartTime = clock();
 
-		//Graph theGr = create_VorGraph(v_edges);
-		//std::vector<v_edge> path = invoke_AStar(theGr);
-		std::vector<std::vector<v_edge>> v_edges_sparced;
-		std::vector<std::vector<v_edge>>::iterator iterEdgesLayer = v_edges.begin();
-		for ( size_t i = 0; i < v_edges.size(); ++i, ++iterEdgesLayer)
-			//if (0 == (i % 10)) // filter out intermediate layers
+		std::vector<double> renderedPath;
+		if (false)
+		{
+			//Graph theGr = create_VorGraph(v_edges);
+			//std::vector<v_edge> path = invoke_AStar(theGr);
+			std::vector<std::vector<v_edge>> v_edges_sparced;
+			std::vector<std::vector<v_edge>>::iterator iterEdgesLayer = v_edges.begin();
+			for (size_t i = 0; i < v_edges.size(); ++i, ++iterEdgesLayer)
+				//if (0 == (i % 10)) // filter out intermediate layers
 				v_edges_sparced.push_back(*iterEdgesLayer);
 
-		vector<Vertex> vecVertices;
-		map<Vertex, int, VertexLessFn> mapLookup;
-		Graph theGr = create_VorGraph(v_edges_sparced, vecVertices, mapLookup);
-		//Vertex ptnSrc(-0.70296182284311681, -0.30610712038352472, 0.0);
-		//Vertex ptnDst(0.76932775901415118, 0.36524457774288216, 320.0);
+			vector<Vertex> vecVertices;
+			map<Vertex, int, VertexLessFn> mapLookup;
+			::Graph theGr = create_VorGraph(v_edges_sparced, vecVertices, mapLookup);
+			//Vertex ptnSrc(-0.70296182284311681, -0.30610712038352472, 0.0);
+			//Vertex ptnDst(0.76932775901415118, 0.36524457774288216, 320.0);
 
-		// Set starting pt, ending pt
-		Vertex ptnSrc(-0.9, -0.1, 0.0);
-		Vertex ptnDst(+0.5, +0.4, 160.0);
-		if (obsType == 2)
-		{
+			// Set starting pt, ending pt
+			Vertex ptnSrc(-0.9, -0.1, 0.0);
+			Vertex ptnDst(+0.5, +0.4, 160.0);
+			if (obsType == 2)
+			{
 
-			// 4
-			ptnSrc = Vertex(-1.8, -1.5, 0.0);
-			ptnDst = Vertex(1.0, -1.1, 180.0);
+				// 4
+				ptnSrc = Vertex(-1.8, -1.5, 0.0);
+				ptnDst = Vertex(1.0, -1.1, 180.0);
 
-			// 3
-			//ptnSrc = Vertex(-1.8, -1.5, 0.0);
-			//ptnDst = Vertex(2.2, 1.3, 90.0);
-			
-			// 2
-			//ptnSrc = Vertex(-1.8, -1.5,  0.0);
-			//ptnDst = Vertex( 2.5, 2, 90.0); 
+				// 3
+				//ptnSrc = Vertex(-1.8, -1.5, 0.0);
+				//ptnDst = Vertex(2.2, 1.3, 90.0);
+
+				// 2
+				//ptnSrc = Vertex(-1.8, -1.5,  0.0);
+				//ptnDst = Vertex( 2.5, 2, 90.0); 
+				//
+				//// 1
+				//ptnSrc = Vertex(-1.8, -1.5, 0.0);
+				//ptnDst = Vertex(1.0, -1.1, 90.0);
+			}
+			if (/*robotType == 0 && */obsType == 1)
+			{
+				ptnSrc = Vertex(0.858, -1.07, 0.0);
+				ptnDst = Vertex(-0.502, 0.509, 0.0);
+			}
+			// Code to find the closest point in G(V,E)
+			{
+				Vertex src(0, 0, 0), dst(0, 0, 0);
+				double d0 = 1e100, d1 = 1e100;
+				for (auto& a : vecVertices)
+				{
+					auto& v = a;
+					if (v.z == ptnSrc.z)
+					{
+						if (v.dist(ptnSrc) < d0)
+						{
+							d0 = v.dist(ptnSrc);
+							src = v;
+						}
+					}
+					if (v.z == ptnDst.z)
+					{
+						if (v.dist(ptnDst) < d1)
+						{
+							d1 = v.dist(ptnDst);
+							dst = v;
+						}
+					}
+				}
+				ptnSrc = src;
+				ptnDst = dst;
+			}
+
+			auto gsInitEndTime = clock();
+			cout << "slice connection time : "
+				<< double(gsInitEndTime - gsInitStartTime) / 1000 << "s" << endl;
+
+			auto iaStart = clock();
+			std::vector<Vertex> path = invoke_AStar(theGr, vecVertices, mapLookup, ptnSrc, ptnDst);
+			auto iaEnd = clock();
+			cout << "A-star time : "
+				<< double(iaEnd - iaStart) / 1000 << "s" << endl;
+
+			//std::cout << path.size() << std::endl;
+
+			// 3. call functions from namespace graphSearch (AStarOnVorDiag.cpp)
+			 // triplet of (path[3n+0], path[3n+1], path[3n+2]) represents a vertice in path. 
+			// vertices = ...
+
+
+			// 4~. do sth with the path....
+
+			// 4-1. Just to check whether mink/vor was constructed properly.
+			// uncomment below to begin renderLoop for mink/voronoi calculated above.
+			//ms::renderMinkVoronoi(argc, argv, MRs, MIBs, v_edges, planning::voronoiBoundary);
+			//ms::renderRefinementCollisionTest(argc, argv, MRs, MIBs, v_edges, planning::voronoiBoundary, VRINs);
+			//rendering3D::renderCSObject(argc, argv, MRs, MIBs);
+
+			// 4-2. render robot's path
+			// Path found on step 3 should be used instead of dummy_path
+			{
+				// just a fake path to check program pipeline.
+				//for (int i = 0; i < 100; i++)
+				for (auto v : path)
+				{
+					//double x = -0.7 + 1.4 / 100.0 * i; // x-coord of Robot center
+					//double y = -0.5 + (i / 100.0) * (i / 100.0); // y-coord of Robot center
+					//double z = log10(i + 1) * 180;	// should be rotation in degrees
+
+					renderedPath.push_back(v.x);
+					renderedPath.push_back(v.y);
+					renderedPath.push_back(v.z);
+				}
+			}
+			bool savePathAsFile = true;
+			if (savePathAsFile)
+			{
+				ofstream fout("path.txt");
+				fout << renderedPath.size() / 3 << endl;
+				for (int i = 0; i < renderedPath.size(); i += 3)
+				{
+					fout
+						<< renderedPath[i + 0] << " "
+						<< renderedPath[i + 1] << " "
+						<< renderedPath[i + 2] << endl;
+				}
+			}
+
+			// ready for renderPath
+			ms::renderPathGlobal::vecVertices = vecVertices;
+			ms::renderPathGlobal::mapLookup = mapLookup;
+			ms::renderPathGlobal::theGr = theGr;
+
+			//{
+			//	for (int i = 0; i< v_edges.size(); i++)
+			//	{
+			//		auto& ves = v_edges[i];
+			//		for (auto& ve : ves)
+			//		{
+			//			auto& p = ve.v0;
+			//			if (ve.idx[0] < 0)
+			//				continue;
+			//			auto& c = VRINs[i].arcs[ve.idx[0]];
+			//			auto d = (p - c.c.c).length2();
+			//			d = sqrt(d);
 			//
-			//// 1
-			//ptnSrc = Vertex(-1.8, -1.5, 0.0);
-			//ptnDst = Vertex(1.0, -1.1, 90.0);
+			//			ve.clr0() = fabs(d - c.cr());
+			//		}
+			//	}
+			//}
 		}
-		if (/*robotType == 0 && */obsType == 1)
-		{
-			ptnSrc = Vertex(0.858, -1.07, 0.0);
-			ptnDst = Vertex(-0.502, 0.509, 0.0);
-		}
-		// Code to find the closest point in G(V,E)
-		{
-			Vertex src(0, 0, 0), dst(0, 0, 0);
-			double d0 = 1e100, d1 = 1e100;
-			for (auto& a : vecVertices)
-			{
-				auto& v = a;
-				if (v.z == ptnSrc.z)
-				{
-					if (v.dist(ptnSrc) < d0)
-					{
-						d0 = v.dist(ptnSrc);
-						src = v;
-					}
-				}
-				if (v.z == ptnDst.z)
-				{
-					if (v.dist(ptnDst) < d1)
-					{
-						d1 = v.dist(ptnDst);
-						dst = v;
-					}
-				}
-			}
-			ptnSrc = src;
-			ptnDst = dst;
-		}
-
-		auto gsInitEndTime = clock();
-		cout << "slice connection time : "
-			<< double(gsInitEndTime - gsInitStartTime) / 1000 << "s" << endl;
-
-		auto iaStart = clock();
-		std::vector<Vertex> path = invoke_AStar(theGr, vecVertices, mapLookup, ptnSrc, ptnDst);
-		auto iaEnd = clock();
-		cout << "A-star time : "
-			<< double(iaEnd - iaStart) / 1000 << "s" << endl;
-
-		//std::cout << path.size() << std::endl;
-
-		// 3. call functions from namespace graphSearch (AStarOnVorDiag.cpp)
-		 // triplet of (path[3n+0], path[3n+1], path[3n+2]) represents a vertice in path. 
-		// vertices = ...
-
-
-		// 4~. do sth with the path....
-
-		// 4-1. Just to check whether mink/vor was constructed properly.
-		// uncomment below to begin renderLoop for mink/voronoi calculated above.
-		//ms::renderMinkVoronoi(argc, argv, MRs, MIBs, v_edges, planning::voronoiBoundary);
-		//ms::renderRefinementCollisionTest(argc, argv, MRs, MIBs, v_edges, planning::voronoiBoundary, VRINs);
-		//rendering3D::renderCSObject(argc, argv, MRs, MIBs);
-
-		// 4-2. render robot's path
-		// Path found on step 3 should be used instead of dummy_path
-		std::vector<double> renderedPath;
-		{
-			// just a fake path to check program pipeline.
-			//for (int i = 0; i < 100; i++)
-			for(auto v : path)
-			{
-				//double x = -0.7 + 1.4 / 100.0 * i; // x-coord of Robot center
-				//double y = -0.5 + (i / 100.0) * (i / 100.0); // y-coord of Robot center
-				//double z = log10(i + 1) * 180;	// should be rotation in degrees
-
-				renderedPath.push_back(v.x);
-				renderedPath.push_back(v.y);
-				renderedPath.push_back(v.z);
-			}
-		}
-		bool savePathAsFile = true;
-		if (savePathAsFile)
-		{
-			ofstream fout("path.txt");
-			fout << renderedPath.size() / 3 << endl;
-			for (int i = 0; i < renderedPath.size(); i += 3)
-			{
-				fout
-					<< renderedPath[i + 0] << " "
-					<< renderedPath[i + 1] << " "
-					<< renderedPath[i + 2] << endl;
-			}
-		}
-
-		// ready for renderPath
-		ms::renderPathGlobal::vecVertices = vecVertices;
-		ms::renderPathGlobal::mapLookup = mapLookup;
-		ms::renderPathGlobal::theGr = theGr;
-		
-		//{
-		//	for (int i = 0; i< v_edges.size(); i++)
-		//	{
-		//		auto& ves = v_edges[i];
-		//		for (auto& ve : ves)
-		//		{
-		//			auto& p = ve.v0;
-		//			if (ve.idx[0] < 0)
-		//				continue;
-		//			auto& c = VRINs[i].arcs[ve.idx[0]];
-		//			auto d = (p - c.c.c).length2();
-		//			d = sqrt(d);
-		//
-		//			ve.clr0() = fabs(d - c.cr());
-		//		}
-		//	}
-		//}
-
 		ms::renderPath(argc, argv, renderedPath);
 
 		return 0;
@@ -1279,7 +1410,7 @@ namespace graphSearch
 
 		vector<Vertex> vecVertices;
 		map<Vertex, int, VertexLessFn> mapLookup;
-		Graph theGr = create_VorGraph(v_edges, vecVertices, mapLookup);
+		::Graph theGr = create_VorGraph(v_edges, vecVertices, mapLookup);
 		Vertex ptnSrc(0, 0, 0);
 		Vertex ptnDst(10, 10, 180.);
 		std::vector<Vertex> path = invoke_AStar(theGr, vecVertices, mapLookup, ptnSrc, ptnDst);
