@@ -601,7 +601,8 @@ djkCalc::buildGraph
 	}
 
 	// 3. build index translation (needed for section 4)
-	vector<int> idxTrn(ns); // index translation := change local idx in a slice to global idx // (sliceNo, vertNo) -> idxTrn[sliceNo] + vertNo;
+	vector<int>& idxTrn = _idxTrn; // index translation := change local idx in a slice to global idx // (sliceNo, vertNo) -> idxTrn[sliceNo] + vertNo;
+	idxTrn.resize(ns);
 	int totVrtCnt; // := number of all vertices
 	{
 		idxTrn[0] = -1; //since there is dummy node;
@@ -728,6 +729,7 @@ djkCalc::buildGraph
 	}
 	
 	// 5.5 test validity
+	if(false)
 	{
 		int minIdx = 1e8;
 		int maxIdx = -1e8;
@@ -768,9 +770,22 @@ djkCalc::buildGraph
 	Graph g(edge.begin(), edge.end(), weight.begin(), totVrtCnt);
 	_graph.swap(g);
 
-	// 7. swap (deubg)
+	// 7. build invEdge;
+	{
+		for(int i = 0; i < edge.size(); i++)
+		{
+			_invEdge[edge[i]] = i;
+		}
+
+		cout << COUT(edge.size()) << endl;
+		cout << COUT(_invEdge.size()) << endl;
+	}
+
+	// 99. swap (deubg)
 	{
 		_vMat.swap(ptLists);
+		_cMat.swap(clrLists);
+
 		_eMat.swap(edgeLists);
 		_eMat2.swap(edgBtwSlc);
 		_wMat.swap(wgtBtwSlc);
@@ -1034,6 +1049,12 @@ djkCalc::searchGraph
 //	}
 //}
 
+#include "collision detection.hpp"
+namespace graphSearch
+{
+	extern std::vector<cd::lineSegmentCollisionTester> testers;
+	extern std::vector<cd::pointCollisionTester> testers2;
+}
 /*
 Def:
 	similar to searchGraph, but the robot rotates near start/end
@@ -1049,91 +1070,430 @@ djkCalc::searchGraph2
 (
 	xyt& _in_start,
 	xyt& _in_end,
-	vector<int>& _out_path
+	vector<xyt>& _out_path,
+	vector<double>& _out_clr,
+	vector<gs::EdgeType>& _out_et,
+	Point& _in_robotForward
 )
 {
+	auto stamp0 = clock();
+
+	// hyper
+	double distBound = 0.3;
+	double distBoundSq = distBound * distBound;
+	constexpr bool alterDjkCalc = false; //TODO
+	constexpr bool useLineTest = false;
+	auto cpyGraph = _graph;
+
 	// alias
 	auto& start = _in_start;
 	auto& end = _in_end;
-	auto& path = _out_path;
+	//auto& path = _out_path;
 
 	int ns = _vertIdx.size() - 1;		// No. of slice
 	int sz = start.t() / 360.0 * ns;	// sliceNo of start
 	int ez = end.t() / 360.0 * ns;		// sliceNo of end
 
-	// 1. find closest ver to start
-
-	int vis, vie; //vertex index start/end 
+	// 1. find rotatable angle
+	auto stamp1 = clock();
+	vector<int> rotatableS, rotatableE; // idx [0, number_of_slice)
+	vector<double> rotatableSclr, rotatableEclr;
+	int sRotIdx, eRotIdx;
 	{
-		xyt p = start;
-		double minDist = 1.0e10;
-		double minVert = -1;
+		Point p(start.x(), start.y());
+		double z = sz;
+		auto& res = rotatableS;
+		auto& res2 = rotatableSclr;
+		auto& rotIdx = sRotIdx;
 
-		// for (all vert in same slice) find closest & clear vert
-		for (int i = _vertIdx[sz]; i < _vertIdx[sz + 1]; i++)
+		// 1-1. test orig
+		Point closest;
+		if (gs::testers2[z].testPrecise(p, closest))
+			return false;
+		auto clr0 = (p - closest).length1();
+
+		// 1-2. rising index;
+		vector<int> temp;
+		vector<double> tempClr;
+		for (int i = z + 1; i < z + ns; i++)
 		{
-			auto& v = _vert[i];
-			auto& c = _clearance[i];
+			auto idx = i;
+			if (i >= ns)
+				idx -= ns;
+			if (gs::testers2[idx].testPrecise(p, closest))
+				break;
 
-			auto dx = p.x() - v.x();
-			auto dy = p.y() - v.y();
-			auto dist = sqrt(dx * dx + dy * dy);
+			temp.push_back(i);
+			tempClr.push_back((p - closest).length1());
+		}
 
-			// if(p is inside clearance of v && dist updatable)
-			if (dist < c && dist < minDist)
+		// 1-3. decreasing
+		vector<int> temp2;
+		vector<double> tempClr2;
+		for (int i = z - 1; i > z + temp.size() - ns; i--)
+		{
+			auto idx = i;
+			if (i < 0)
+				idx += ns;
+			if (gs::testers2[idx].testPrecise(p, closest))
+				break;
+
+			temp2.push_back(i);
+			tempClr2.push_back((p - closest).length1());
+		}
+
+		// build res
+		res.insert(res.end(), temp2.rbegin(), temp2.rend());
+		res.push_back(z);
+		res.insert(res.end(), temp.begin(), temp.end());
+
+		res2.insert(res2.end(), tempClr2.rbegin(), tempClr2.rend());
+		res2.push_back(clr0);
+		res2.insert(res2.end(), tempClr.begin(), tempClr.end());
+
+		rotIdx = temp2.size();
+	}
+	{
+		// 1-0. changed part
+		Point p(end.x(), end.y());
+		double z = ez;
+		auto& res = rotatableE;
+		auto& res2 = rotatableEclr;
+		auto& rotIdx = eRotIdx;
+
+		// 1-1. test orig
+		Point closest;
+		if (gs::testers2[z].testPrecise(p, closest))
+			return false;
+		auto clr0 = (p - closest).length1();
+
+		// 1-2. rising index;
+		vector<int> temp;
+		vector<double> tempClr;
+		for (int i = z + 1; i < z + ns; i++)
+		{
+			auto idx = i;
+			if (i >= ns)
+				idx -= ns;
+			if (gs::testers2[idx].testPrecise(p, closest))
+				break;
+
+			temp.push_back(i);
+			tempClr.push_back((p - closest).length1());
+		}
+
+		// 1-3. decreasing
+		vector<int> temp2;
+		vector<double> tempClr2;
+		for (int i = z - 1; i > z + temp.size() - ns; i--)
+		{
+			auto idx = i;
+			if (i < 0)
+				idx += ns;
+			if (gs::testers2[idx].testPrecise(p, closest))
+				break;
+
+			temp2.push_back(i);
+			tempClr2.push_back((p - closest).length1());
+		}
+
+		// build res
+		res.insert(res.end(), temp2.rbegin(), temp2.rend());
+		res.push_back(z);
+		res.insert(res.end(), temp.begin(), temp.end());
+
+		res2.insert(res2.end(), tempClr2.rbegin(), tempClr2.rend());
+		res2.push_back(clr0);
+		res2.insert(res2.end(), tempClr.begin(), tempClr.end());
+
+		rotIdx = temp2.size();
+	}
+
+	// 2. find connectable
+	auto stamp2 = clock();
+	vector<vector<int>> connectableS(rotatableS.size()), connectableE(rotatableE.size());
+	vector<vector<Weight>> conWeightS(rotatableS.size()), conWeightE(rotatableE.size());
+	{
+		auto& r = rotatableS;
+		auto& clrs = rotatableSclr;
+		auto& res = connectableS;
+		auto& res2 = conWeightS;
+		Point p(start.x(), start.y());
+		
+		for (int i = 0; i < r.size(); i++)
+		{
+			// alias
+			auto& c = res[i];
+			auto& clr0 = clrs[i];
+			auto& w = res2[i];
+			auto& idx = r[i];
+			if (idx < 0)
+				idx += ns;
+			if (idx >= ns)
+				idx -= ns;
+
+			auto trn = _idxTrn[idx];
+			auto deg = double(idx) / ns * 360.0;
+			
+			for (int j = 1; j < _vMat[idx].size(); j++)
 			{
-				minVert = i;
-				minDist = dist;
+				auto& v = _vMat[idx][j];
+
+				auto dsq = (p - v).length2();
+				if (useLineTest)
+				{
+					if (dsq < distBoundSq)
+					{
+						if (gs::testers[idx].test(p, v))
+							continue;
+						else
+						{
+							c.push_back(trn + j);
+							w.push_back(findWeight(p, v, _in_robotForward, deg));
+						}
+
+					}
+				}
+				else
+				{
+					auto d = sqrt(dsq);
+					auto clr1 = _cMat[idx][j];
+
+					if (d < clr1 || d < clr0)
+					{
+						c.push_back(trn + j);
+						w.push_back(findWeight(p, v, _in_robotForward, deg));
+					}
+				}
+			}
+		}
+	}
+	{
+		auto& r = rotatableE;
+		auto& clrs = rotatableEclr;
+		auto& res = connectableE;
+		auto& res2 = conWeightE;
+		Point p(end.x(), end.y());
+
+		for (int i = 0; i < r.size(); i++)
+		{
+			// alias
+			auto& c = res[i];
+			auto& clr0 = clrs[i];
+			auto& w = res2[i];
+			auto& idx = r[i];
+			if (idx < 0)
+				idx += ns;
+			if (idx >= ns)
+				idx -= ns;
+
+			auto trn = _idxTrn[idx];
+			auto deg = double(idx) / ns * 360.0;
+
+			for (int j = 1; j < _vMat[idx].size(); j++)
+			{
+				auto& v = _vMat[idx][j];
+
+				auto dsq = (p - v).length2();
+				if (useLineTest)
+				{
+					if (dsq < distBoundSq)
+					{
+						if (gs::testers[idx].test(p, v))
+							continue;
+						else
+						{
+							c.push_back(trn + j);
+							w.push_back(findWeight(p, v, _in_robotForward, deg));
+						}
+
+					}
+				}
+				else
+				{
+					auto d = sqrt(dsq);
+					auto clr1 = _cMat[idx][j];
+
+					if (d < clr1 || d < clr0)
+					{
+						c.push_back(trn + j);
+						w.push_back(findWeight(p, v, _in_robotForward, deg));
+					}
+				}
+			}
+		}
+	}
+
+	// 3. add vertices
+	auto stamp3 = clock();
+	int sTrn = boost::num_vertices(_graph);
+	vector<Vdesc> svd;
+	{
+		for (int i = 0; i < rotatableS.size(); i++)
+		{
+			svd.push_back(add_vertex(_graph));
+
+			//change original graph
+			{
+				xyt temp = start;
+				auto deg = double(rotatableS[i]) / ns * 360.0;
+				if (deg < 0.0)
+					deg += 360.0;
+				if (deg >= 360.0)
+					deg -= 360.0;
+				temp.t() = deg;
+
+				if (alterDjkCalc)
+				{
+					_vert.push_back(temp);
+					_clearance.push_back(rotatableSclr[i]);
+				}
+			}
+		}
+	}
+	int eTrn = boost::num_vertices(_graph);
+	vector<Vdesc> evd;
+	{
+		for (int i = 0; i < rotatableE.size(); i++)
+		{
+			evd.push_back(add_vertex(_graph));
+
+			//change original graph
+			{
+				xyt temp = end;
+				auto deg = double(rotatableE[i]) / ns * 360.0;
+				if (deg < 0.0)
+					deg += 360.0;
+				if (deg >= 360.0)
+					deg -= 360.0;
+				temp.t() = deg;
+
+				if (alterDjkCalc)
+				{
+					_vert.push_back(temp);
+					_clearance.push_back(rotatableEclr[i]);
+				}
+			}
+		}
+	}
+
+	// 4. add edges (horizontal)
+	auto stamp4 = clock();
+	vector<int> eIdxList;
+	eIdxList.reserve(5);
+	eIdxList.push_back(boost::num_edges(_graph));
+	vector<Edesc> sed;
+	{
+		auto& c = connectableS;
+		auto& w = conWeightS;
+		auto& edv = sed;
+		auto& vdv = svd;
+
+		for (int i = 0; i < c.size(); i++)
+		{
+			for (int j = 0; j < c[i].size(); j++)
+			{
+				// boost
+				auto v = boost::vertex(c[i][j], _graph);
+				//boost::property<boost::edge_weight_t, Weight > prop()
+				auto ed = add_edge(vdv[i], v, _graph).first;
+				boost::put(boost::edge_weight, _graph, ed, w[i][j]);
+				edv.push_back(ed);
+
+				// djkCalc
+
+				// TODO
+			}
+		}
+	}
+	eIdxList.push_back(boost::num_edges(_graph));
+	vector<Edesc> eed;
+	{
+		auto& c = connectableE;
+		auto& w = conWeightE;
+		auto& edv = eed;
+		auto& vdv = evd;
+
+		for (int i = 0; i < c.size(); i++)
+		{
+			for (int j = 0; j < c[i].size(); j++)
+			{
+				auto v = boost::vertex(c[i][j], _graph);
+				//boost::property<boost::edge_weight_t, Weight > prop()
+				auto ed = add_edge(vdv[i], v, _graph).first;
+				boost::put(boost::edge_weight, _graph, ed, w[i][j]);
+				edv.push_back(ed);
 			}
 		}
 
-		if (minVert == -1)
-			return false;
-		else
-			vis = minVert;
 	}
+	eIdxList.push_back(boost::num_edges(_graph));
+
+	// 5. add edges (vertical)
+	auto stamp5 = clock();
 	{
-		xyt p = end;
-		double minDist = 1.0e+10;
-		double minVert = -1;
+		auto& vdv = svd;
+		auto& edv = sed;
 
-		// for (all vert in same slice) find closest & clear vert
-		for (int i = _vertIdx[ez]; i < _vertIdx[ez + 1]; i++)
+		for (int i = 0; i < vdv.size() - 1; i++)
 		{
-			auto& v = _vert[i];
-			auto& c = _clearance[i];
-
-			auto dx = p.x() - v.x();
-			auto dy = p.y() - v.y();
-			auto dist = sqrt(dx * dx + dy * dy);
-
-			// if(p is inside clearance of v && dist updatable)
-			if (dist < c && dist < minDist)
-			{
-				minVert = i;
-				minDist = dist;
-			}
+			auto ed = add_edge(vdv[i], vdv[i+1], _graph).first;
+			boost::put(boost::edge_weight, _graph, ed, 1e-12);
+			edv.push_back(ed);
 		}
 
-		if (minVert == -1)
-			return false;
-		else
-			vie = minVert;
+		// if(robot can rotate full 360 degree) connect last-first vert
+		if (vdv.size() == ns)
+		{
+			cout << "robot can rotate fully at start" << endl;
+			auto ed = add_edge(vdv.front(), vdv.back(), _graph).first;
+			boost::put(boost::edge_weight, _graph, ed, 1e-12);
+			edv.push_back(ed);
+		}
 	}
+	eIdxList.push_back(boost::num_edges(_graph));
+	{
+		auto& vdv = evd;
+		auto& edv = eed;
 
-	// 2. do graph search
-	Vdesc			sv = boost::vertex(vis, _graph);
+		for (int i = 0; i < vdv.size() - 1; i++)
+		{
+			auto ed = add_edge(vdv[i], vdv[i + 1], _graph).first;
+			boost::put(boost::edge_weight, _graph, ed, 1e-10);
+			edv.push_back(ed);
+		}
+
+		// if(robot can rotate full 360 degree) connect last-first vert
+		if (vdv.size() == ns)
+		{
+			cout << "robot can rotate fully at end" << endl;
+			auto ed = add_edge(vdv.front(), vdv.back(), _graph).first;
+			boost::put(boost::edge_weight, _graph, ed, 1e-12);
+			edv.push_back(ed);
+		}
+	}
+	eIdxList.push_back(boost::num_edges(_graph));
+
+
+	// 6. do graph search
+	auto stamp6 = clock();
+	Vdesc			sv = svd[sRotIdx];
 	vector<Weight>	dist(boost::num_vertices(_graph));
 	vector<Vdesc>	pred(boost::num_vertices(_graph));
 
 	boost::dijkstra_shortest_paths(_graph, sv, boost::predecessor_map(&pred[0]).distance_map(&dist[0]));
 
-	// 3. return 
-	//if(end point not reachable)
+	// 7. evaluate result;
+	auto stamp7 = clock();
+	auto vie = eTrn + eRotIdx;
+	auto vis = sTrn + sRotIdx;
+
+	// 7-1. failure
 	if (pred[vie] == vie)
 		return false;
 
-	// follow pred and build path
+	// 7-2. path of vertIdx;
+	vector<int> path;
 	int cur = vie;
 	while (cur != vis)
 	{
@@ -1144,62 +1504,200 @@ djkCalc::searchGraph2
 
 	reverse(path.begin(), path.end());
 
-	//debug
-	if (1)
+	// 7-3. path xyt
+	auto& out = _out_path;
+	for (auto i : path)
 	{
-		using namespace boost;
+		if (i < sTrn)
+		{
+			// v from original graph
+			out.push_back(getVert()[i]);
+		}
+		else if (i < eTrn)
+		{
+			// v from start-connection
+			auto localIdx = i - sTrn;
+			auto z = rotatableS[localIdx];
+			if (z < 0)
+				z += ns;
+			if (z >= ns)
+				z -= ns;
+			double t = double(z) / ns * 360.0;
+			out.emplace_back(start.x(), start.y(), t);
 
-		double d0 = dist[vie];
-		double d1 = 0.0;
+			// dbg_out
+			{
+				if (t < 0.0 || t >= 360.0)
+					cout << "t is strange: " << t << endl;
+			}
+		}
+		else
+		{
+			// v from end-connection
+			auto localIdx = i - eTrn;
+			auto z = rotatableE[localIdx];
+			if (z < 0)
+				z += ns;
+			if (z >= ns)
+				z -= ns;
+			double t = double(z) / ns * 360.0;
+			out.emplace_back(end.x(), end.y(), t);
+
+			// dbg_out
+			{
+				if (t < 0.0 || t >= 360.0)
+					cout << "t is strange: " << t << endl;
+			}
+		}
+	}
+
+	// 8. clr list build;
+	{
+		auto& outclr = _out_clr;
+
+		for (auto i : path)
+		{
+			if (i < sTrn)
+			{
+				outclr.push_back(getClr()[i]);
+			}
+			else if (i < eTrn)
+			{
+				// v from start-connection
+				auto localIdx = i - sTrn;
+				outclr.push_back(rotatableSclr[localIdx]);
+			}
+			else
+			{
+				auto localIdx = i - eTrn;
+				outclr.push_back(rotatableEclr[localIdx]);
+			}
+		}
+	}
+
+	// 9. edge type build
+	{
+		auto& outet = _out_et;
 		for (int i = 0; i < path.size() - 1; i++)
 		{
-			int in = i + 1;
-			int idx0 = path[i];  //vertIdx;
-			int idx1 = path[in]; //vertIdx;
+			// get ed;
+			//int i1 = i + 1;
+			auto v0 = path[i + 0];
+			auto v1 = path[i + 1];
+			//auto vd0 = boost::vertex(v0, _graph);
+			//auto vd1 = boost::vertex(v1, _graph);
+			//auto ed = boost::edge(vd0, vd1, _graph).first;
 
-			// weight in graph
-			Vdesc vd0 = vertex(idx0, _graph);
-			Vdesc vd1 = vertex(idx1, _graph);
-			auto edt = edge(vd0, vd1, _graph);
-			Edesc ed = edt.first;
-			auto weight_g = get(edge_weight, _graph, ed);
-
-			// weight before making graph
-			int eidxOrig = -1;
-			for (int i = 0; i < _edge.size(); i++)
+			// find edgeType
+			if (v0 < sTrn)
 			{
-				if (_edge[i].first == idx0 && _edge[i].second == idx1)
+				if (v1 < sTrn)
 				{
-					eidxOrig = i;
-					break;
+					// [0, 6)
+					auto query = _invEdge.find(make_pair(v0, v1));
+					if (query == _invEdge.end())
+					{
+						auto query2 = _invEdge.find(make_pair(v1, v0));
+						if (query2 == _invEdge.end())
+						{
+							cout << " Err at searchGraph2 : 9 : _invEdge not found " << endl;
+							outet.push_back(gs::etUnknow);
+							continue;
+						}
+
+						auto idx = query2->second;
+						outet.push_back(_etype[idx]);
+						continue;
+					}
+
+					auto idx = query->second;
+					outet.push_back(_etype[idx]);
 				}
-				if (_edge[i].first == idx1 && _edge[i].second == idx0)
+				else if (v1 < eTrn)
 				{
-					eidxOrig = i;
-					break;
+					// 7
+					outet.push_back(gs::etStrHor);
+				}
+				else
+				{
+					// 9
+					outet.push_back(gs::etEndHor);
 				}
 			}
-			auto weight_orig = _weight[eidxOrig];
-
-			auto& v0 = _vert[idx0];
-			auto& v1 = _vert[idx1];
-			auto dv = v0 - v1;
-
-			auto weight_calc = sqrt((dv.x() * dv.x()) + (dv.y() * dv.y()));
-			d1 += weight_calc;
-
-			cout << i << ": wo wg wc : " << weight_orig << "   " << weight_g << " " << weight_calc << endl;
-			// conc : weight is wrongly set at build graph
+			else if (v0 < eTrn)
+			{
+				if (v1 < sTrn)
+				{
+					// 7
+					outet.push_back(gs::etStrHor);
+				}
+				else if (v1 < eTrn)
+				{
+					// 6
+					outet.push_back(gs::etStrVer);
+				}
+				else
+				{
+					// 10
+					outet.push_back(gs::etStrEnd);
+				}
+			}
+			else
+			{
+				if (v1 < sTrn)
+				{
+					// 9
+					outet.push_back(gs::etEndHor);
+				}
+				else if (v1 < eTrn)
+				{
+					// 10
+					outet.push_back(gs::etStrEnd);
+				}
+				else
+				{
+					// 8
+					outet.push_back(gs::etEndVer);
+				}
+			}
 		}
-
-		// _weight (right before graph)
-		// boost (current graph)
-		// sqrt(dP)
-		// 
-
-		cout << COUT(d0) << endl;
-		cout << COUT(d1) << endl;
 	}
+
+	// 99. remove vert/edge
+	auto stamp8 = clock();
+	{
+		//No?
+		if (!alterDjkCalc) 
+		{
+			//// remove edge
+			//for (auto& vd : svd)
+			//	boost::clear_vertex(vd, _graph);
+			//for (auto& vd : evd)
+			//	boost::clear_vertex(vd, _graph);
+			//
+			//// remove vert
+			//int s = sTrn;
+			//int e = boost::num_vertices(_graph);
+			//for (int i = e - 1; i >= s; i--)
+			//{
+			//	auto vd = boost::vertex(i, _graph);
+			//	boost::remove_vertex(vd, _graph);
+			//}
+
+			//_graph.swap(cpyGraph); // not used anymore: this is time consuming
+			_graph = (cpyGraph);
+		}
+	}
+	auto stamp9 = clock();
+	cout << "time: init:   " << double(stamp1 - stamp0) / CLOCKS_PER_SEC * 1000 << "ms" << endl;
+	cout << "time: rotAng: " << double(stamp2 - stamp1) / CLOCKS_PER_SEC * 1000 << "ms" << endl;
+	cout << "time: connec: " << double(stamp3 - stamp2) / CLOCKS_PER_SEC * 1000 << "ms" << endl;
+	cout << "time: addVer: " << double(stamp4 - stamp3) / CLOCKS_PER_SEC * 1000 << "ms" << endl;
+	cout << "time: addEho: " << double(stamp5 - stamp4) / CLOCKS_PER_SEC * 1000 << "ms" << endl;
+	cout << "time: addEvr: " << double(stamp6 - stamp5) / CLOCKS_PER_SEC * 1000 << "ms" << endl;
+	cout << "time: search: " << double(stamp7 - stamp6) / CLOCKS_PER_SEC * 1000 << "ms" << endl;
+	cout << "time: wrtPth: " << double(stamp8 - stamp7) / CLOCKS_PER_SEC * 1000 << "ms" << endl;
+	cout << "time: rmvGrp: " << double(stamp9 - stamp8) / CLOCKS_PER_SEC * 1000 << "ms" << endl;
 
 	return true;
 }
@@ -1230,6 +1728,6 @@ gs::Weight djkCalc::nhMultiplier(const Point& p, const Point& q, Point& forward,
 gs::Weight djkCalc::findWeight(const Point& p, const Point& q, Point& forward, double sliceDegree)
 {
 	auto len = (p - q).length1();
-	return len;
 	return nhMultiplier(p, q, forward, sliceDegree) * len;
+	return len;
 }

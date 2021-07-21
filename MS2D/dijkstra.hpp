@@ -51,9 +51,15 @@ namespace graphSearch
 	using
 		Edge =
 		std::pair<int, int>;
+
+	#define graphContainerType 0
 	using
 		Graph =
+		#if graphContainerType == 0
 		adjacency_list < vecS, vecS, undirectedS, no_property, property < edge_weight_t, Weight > >;
+		#elif graphContainerType == 1
+		adjacency_list < listS, listS, undirectedS, no_property, property < edge_weight_t, Weight > >;
+		#endif
 	using
 		Vdesc =
 		graph_traits < Graph >::vertex_descriptor;
@@ -61,21 +67,63 @@ namespace graphSearch
 		Edesc =
 		graph_traits < Graph >::edge_descriptor;
 
+	//inline int vd2idx(Vdesc& vd)
+	//{
+	//	#if graphContainerType == 0
+	//	return vd;
+	//	#elif graphContainerType == 1
+	//	return *vd;
+	//	#endif
+	//}
+
 #pragma endregion
 
 	enum EdgeType
 	{
-		etVor = 0, // voronoi
-		etOff = 1, // offset curve
-		etOcn = 2, // connection: vor - off
-		etTan = 3, // common tangnet
-		etTcn = 4, // connection : tan - (others)
-		etIsc = 5,  // InterSliceConnection
-		etStrVer = 6, // starting pt vertical   edge
-		etStrHor = 7, // starting pt horizontal edge
-		etEndVer = 8, // ending   pt vertical   edge
-		etEndHor = 9  // ending   pt horizontal   edge
+		etVor	 = 0,	// voronoi
+		etOff	 = 1,	// offset curve
+		etOcn	 = 2,	// connection: vor - off
+		etTan	 = 3,	// common tangnet
+		etTcn	 = 4,	// connection : tan - (others)
+		etIsc	 = 5,	// InterSliceConnection
+		etStrVer = 6,	// starting pt vertical   edge
+		etStrHor = 7,	// starting pt horizontal edge
+		etEndVer = 8,	// ending   pt vertical   edge
+		etEndHor = 9,	// ending   pt horizontal   edge
+		etStrEnd = 10,	// edge that directly connects start/end pt (may not exist)
+		etUnknow = 11
 	};
+
+	inline string et2str(EdgeType et)
+	{
+		switch (et)
+		{
+		case etVor:
+			return string("etVor   ");
+		case etOff:
+			return string("etOff   ");
+		case etOcn:
+			return string("etOcn   ");
+		case etTan:
+			return string("etTan   ");
+		case etTcn:
+			return string("etTcn   ");
+		case etIsc:
+			return string("etIsc   ");
+		case etStrVer:
+			return string("etStrVer");
+		case etStrHor:
+			return string("etStrHor");
+		case etEndVer:
+			return string("etEndVer");
+		case etEndHor:
+			return string("etEndHor");
+		case etStrEnd:
+			return string("etStrEnd");
+		case etUnknow:
+			return string("etUnknow");
+		}
+	}
 
 	/*
 	Def: vert used for dijkstra search
@@ -135,19 +183,26 @@ private:
 	vector<Edge>	_edge;
 	vector<Weight>	_weight;
 	vector<EdgeType>_etype;
+	map<Edge, int>  _invEdge;
 
 	vector<xyt>		_vert;
 	vector<double>  _clearance;
+
 	vector<int>		_vertIdx; // [vertIdx[0], vertIdx[1]) : interval of idx of verts at slice 0
+	vector<int>		_idxTrn; // translate vert local idx is slice -> global idx
 
 public:
-	vector<vector<Point>>
+	vector<vector<Point>>	//warning: [n][0] is dummy
 		_vMat;
+	vector<vector<double>>	//warning: [n][0] is dummy
+		_cMat;
+
 	vector<vector<Edge>>
 		_eMat,
 		_eMat2;
 	vector<vector<Weight>>
 		_wMat;
+		//_wMat2?
 
 public:
 	// con/destructor
@@ -161,6 +216,8 @@ public:
 		getEdge() { return _edge; }
 	inline decltype(_weight)&
 		getWeight() { return _weight; }
+	inline decltype(_etype)&
+		getEtype() { return _etype; }
 	inline decltype(_vert)&
 		getVert() { return _vert; }
 	inline decltype(_clearance)&
@@ -188,11 +245,14 @@ public:
 	
 	int
 	searchGraph2
-		(
-			xyt& _in_start,
-			xyt& _in_end,
-			vector<int>& _out_path
-		);
+	(
+		xyt& _in_start,
+		xyt& _in_end,
+		vector<xyt>& _out_path,
+		vector<double>& _out_clr,
+		vector<gs::EdgeType>& _out_et,
+		Point& _in_robotForward
+	);
 
 private:
 	//inline Weight wgtVor(Point& p, Point& q, Point& forward) { return (p - q).length1(); }

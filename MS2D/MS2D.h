@@ -42,6 +42,12 @@ void
 void 
 	initializeRobotObstacles(int RobotIdx = 0, int ObstaclesIdx = 0);
 
+void
+findInteriorDisks(std::vector<ms::CircularArc>& _in_model, int _in_sampling_rate, std::vector<ms::Circle>& _out_disks);
+void 
+findInteriorDisks2(std::vector<ms::CircularArc>& _in_model, double _in_sampling_length, std::vector<ms::Circle>& _out_disks);
+
+
 
 #define grid_half_size 3.25
 

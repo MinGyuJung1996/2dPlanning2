@@ -70,6 +70,10 @@ namespace sceneEditor
 {
 	int main(int argc, char* argv[]);
 }
+namespace modelEditor
+{
+	int main(int argc, char* argv[]);
+}
 
 int main(int argc, char *argv[]) {
 
@@ -214,7 +218,8 @@ int main(int argc, char *argv[]) {
 
 	//cout << "fake func" << endl;
 
-	//sceneEditor::main(argc, argv);	// interactive editing
+	modelEditor::main(argc, argv);	// make model/scene with mouse
+	//sceneEditor::main(argc, argv);	// interactive editing of scene
 	//rendering3D::main3::main3(argc, argv);	// draw 3d c-space
 	graphSearch::main2(argc, argv);		// draw moving robot
 	//graphSearch::main(0, NULL);
@@ -251,7 +256,12 @@ namespace graphSearch
 	int main2(int argc, char* argv[])
 	{
 		int robotType = 1;
-		int obsType   = 4;
+		int obsType   = 10;
+		/* options:
+		1,4 1,5 
+		1,6~11 (made with modelEditor)
+		*/
+
 
 		//minor stuffs with model
 		{

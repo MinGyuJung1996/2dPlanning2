@@ -290,17 +290,17 @@ void initializeRobotObstacles(int RobotIdx, int ObstaclesIdx)
 	{
 		const int
 			nRobot = 3,
-			nObs = 5;
+			nObs = 6;
 
 		if (RobotIdx < 0)
 			RobotIdx = 0;
 		if (RobotIdx >= nRobot)
 			RobotIdx = nRobot - 1;
 		
-		if (ObstaclesIdx < 0)
-			ObstaclesIdx = 0;
-		if (ObstaclesIdx >= nObs)
-			ObstaclesIdx = nObs - 1;
+		//if (ObstaclesIdx < 0)
+		//	ObstaclesIdx = 0;
+		//if (ObstaclesIdx >= nObs)
+		//	ObstaclesIdx = nObs - 1;
 	}
 	
 	// 1. Robot
@@ -472,6 +472,112 @@ void initializeRobotObstacles(int RobotIdx, int ObstaclesIdx)
 		Point uniformTranslation;
 		switch (ObstaclesIdx)
 		{
+		case 11:
+		{
+			// tan fig 8
+			vector<CircularArc> arcs;
+			vector<Circle>	   circs;
+
+			readArcModel(
+				"modelEditor/tan8/arc.txt",
+				"modelEditor/tan8/circ.txt",
+				arcs, circs
+			);
+			appendArcModel(sceneOriginal, sceneCircles, arcs, circs, 1.0, 0.0, Point(0, 0));
+			break;
+		}
+		case 10:
+		{
+			// gvd figure 12
+			vector<CircularArc> arcs;
+			vector<Circle>	   circs;
+
+			readArcModel(
+				"modelEditor/gvd12/arc.txt",
+				"modelEditor/gvd12/circ.txt",
+				arcs, circs
+			);
+			appendArcModel(sceneOriginal, sceneCircles, arcs, circs, 1.0, 0.0, Point(0, 0));
+			break;
+		}
+		case 9:
+		{
+			// gvd figure 11
+			vector<CircularArc> arcs;
+			vector<Circle>	   circs;
+
+			readArcModel(
+				"modelEditor/gvd11/arc.txt",
+				"modelEditor/gvd11/circ.txt",
+				arcs, circs
+			);
+			appendArcModel(sceneOriginal, sceneCircles, arcs, circs, 1.0, 0.0, Point(0, 0));
+			break;
+		}
+		case 8:
+		{
+			// gvd figure 9
+			vector<CircularArc> arcs;
+			vector<Circle>	   circs;
+
+			readArcModel(
+				"modelEditor/gvd9/arc.txt",
+				"modelEditor/gvd9/circ.txt",
+				arcs, circs
+			);
+			appendArcModel(sceneOriginal, sceneCircles, arcs, circs, 1.0, 0.0, Point(0, 0));
+			break;
+		}
+		case 7:
+		{
+			// gvd figure 4
+			vector<CircularArc> arcs;
+			vector<Circle>	   circs;
+
+			readArcModel(
+				"modelEditor/gvd4/arc.txt",
+				"modelEditor/gvd4/circ.txt",
+				arcs, circs
+			);
+			appendArcModel(sceneOriginal, sceneCircles, arcs, circs, 1.0, 0.0, Point(0, 0));
+			break;
+		}
+		case 6:
+		{
+			// gvd figure 3
+			vector<CircularArc> arcs;
+			vector<Circle>	   circs;
+
+			readArcModel(
+				"modelEditor/gvd3/arc.txt",
+				"modelEditor/gvd3/circ.txt",
+				arcs, circs
+			);
+			appendArcModel(sceneOriginal, sceneCircles, arcs, circs, 1.0, 0.0, Point(0, 0));
+			break;
+		}
+		case 5:
+		{
+			// 9 squares
+			vector<CircularArc> arcObjectSq;
+			vector<Circle>	   circObjectSq;
+			readArcModel("Objects/Square-shape-g1/arc.txt", "Objects/Square-shape-g1/circ.txt", arcObjectSq, circObjectSq);
+
+			appendArcModel(sceneOriginal, sceneCircles, arcObjectSq, circObjectSq, 0.3, 0.5, Point(-0.36, -0.39));
+			appendArcModel(sceneOriginal, sceneCircles, arcObjectSq, circObjectSq, 0.3, 0.5, Point(-0.01, -0.29));
+			appendArcModel(sceneOriginal, sceneCircles, arcObjectSq, circObjectSq, 0.3, 0.5, Point(+0.46, -0.39));
+
+			appendArcModel(sceneOriginal, sceneCircles, arcObjectSq, circObjectSq, 0.3, 0.5, Point(-0.44, -0.01));
+			appendArcModel(sceneOriginal, sceneCircles, arcObjectSq, circObjectSq, 0.3, 0.5, Point(-0.05, -0.05));
+			appendArcModel(sceneOriginal, sceneCircles, arcObjectSq, circObjectSq, 0.3, 0.5, Point(+0.44, -0.03));
+
+			appendArcModel(sceneOriginal, sceneCircles, arcObjectSq, circObjectSq, 0.3, 0.5, Point(-0.36, +0.39));
+			appendArcModel(sceneOriginal, sceneCircles, arcObjectSq, circObjectSq, 0.3, 0.5, Point(-0.00, +0.39));
+			appendArcModel(sceneOriginal, sceneCircles, arcObjectSq, circObjectSq, 0.3, 0.5, Point(+0.36, +0.39));
+
+
+			break;
+		}
 		case 4:
 		{
 			vector<CircularArc> arcObjectSq;
@@ -1073,7 +1179,8 @@ void tessPathClear(vector<Vertex>& in_path, double in_tessLen, vector<Vertex>& o
 		auto& v0 = in[idx];
 		auto& v1 = in[idx+1];
 		auto dv = v1 - v0;
-		auto eLen = sqrt(dv.x * dv.x + dv.y * dv.y);
+		if (abs(dv.z) > 1.0) dv.z = 1.0;// handle 0,359 connection
+		auto eLen = sqrt(dv.x * dv.x + dv.y * dv.y + dv.z * dv.z /1e6);
 		double t = segLen / eLen;
 
 		// 1. evaluate point
@@ -1116,7 +1223,8 @@ void tessPathClear(vector<Vertex>& in_path, double in_tessLen, vector<Vertex>& o
 
 				//get next currLen
 				auto dv = in[idx + 1] - in[idx];
-				currentLen = sqrt(dv.x * dv.x + dv.y * dv.y);
+				if (abs(dv.z) > 1.0) dv.z = 1.0; // handle 0,359 connection
+				currentLen = sqrt(dv.x * dv.x + dv.y * dv.y + dv.z * dv.z / 1e6);
 			}
 
 		}
@@ -1141,9 +1249,10 @@ Output:
 		[0.0, 1.0] (if exists contact)
 		-1.0 (if no contact)
 	Return:
-		radius of max touch
+		radius of max touch (if exists)
+		negative value (nth to do with rad) when no touch
 Note:
-	no check: when arc is concave, whether rad is bigger than p's arc's rad
+	no check: when arc (p is from) is concave, whether rad is bigger than p's arc's rad
 */
 double CircularArc::maxTouchRad(Point p, Point n, double& par)
 {
@@ -1280,7 +1389,136 @@ double CircularArc::maxTouchRad(Point p, Point n, double& par)
 	}
 }
 
+/*
+Def:
+	find disk for a given model
+Assume:
+	model is globally ccw <==> inner region lies in the left-side respect to tangent.
+		(inner loops are cw)
+Param:
+	model : self-explanatory
+	sampling_rate: number of disks is somewhat rational to this number (1 seems enough)
+	disks : self-explanatory
+Desc:
+	let n := sampling_rate;
+	sample point normals (from each arcs) at t = i / (n+1). (where i \in [1, n+1) )
+	find maxtouch disk from those points
+*/
+void findInteriorDisks(vector<CircularArc>& _in_model, int _in_sampling_rate, vector<Circle>& _out_disks)
+{
+	constexpr double _h_disk_radius_multiplier = 0.99; // using the exact touching disk may-be erroneous
+	constexpr double _min_rad_init_val = 1.0e+10;
 
+	auto& arcs	= _in_model;
+	auto& ns	= _in_sampling_rate;
+	auto& out	= _out_disks;
+
+	// for(each arc)
+	for (int i = 0; i < arcs.size(); i++)
+	{
+		auto& arc = arcs[i];
+
+		// for(n of samples)
+		for (int j = 0; j < ns; j++)
+		{
+			// 1. find point-normal at t;
+			double t = double(j + 1) / (ns + 1); // [0, 1)
+			auto par = arc.param();
+			double theta = par.first * (1 - t) + par.second * (t);
+			
+			Point pos = arc.xt(theta);
+			Point tan = arc.tan(theta);
+			Point nor = tan.rotate(); // assumption that: globalccw
+
+			// 2. find max touch rad;
+			//for(each compared arc)
+			double minRad = _min_rad_init_val;
+			double temp;
+			for (int k = 0; k < arcs.size(); k++)
+			{
+				// 2-0. continue when same arc
+				if (i == k)
+					continue;
+
+				// 2-1. find point normal pair from this arc;
+				double rad = arcs[k].maxTouchRad(pos, nor, temp);
+				if (rad > 0.0 && rad < minRad)
+					minRad = rad;
+			}
+
+			// 3. check error-case, if (not) push
+			if (minRad != _min_rad_init_val)
+			{
+				auto center = pos + minRad * nor;
+				out.emplace_back(center, minRad * _h_disk_radius_multiplier);
+			}
+		}
+		
+	}
+
+}
+
+/*
+Def:
+	similar to 1, but uses different sampling rate per arc,
+*/
+void findInteriorDisks2(vector<CircularArc>& _in_model, double _in_sampling_length, vector<Circle>& _out_disks)
+{
+	constexpr double _h_disk_radius_multiplier = 0.99; // using the exact touching disk may-be erroneous
+	constexpr double _min_rad_init_val = 1.0e+10;
+
+	auto& arcs = _in_model;
+	//auto& ns = _in_sampling_rate;
+	auto& out = _out_disks;
+
+	// for(each arc)
+	for (int i = 0; i < arcs.size(); i++)
+	{
+		auto& arc = arcs[i];
+
+		auto par = arc.param();
+		auto arcLen = arc.cr() * abs(par.second - par.first);
+		int ns = ceil(arcLen / _in_sampling_length);
+
+		// for(n of samples)
+		for (int j = 0; j < ns; j++)
+		{
+			// 1. find point-normal at t;
+			double t = double(j + 1) / (ns + 1); // [0, 1)
+			auto par = arc.param();
+			double theta = par.first * (1 - t) + par.second * (t);
+
+			Point pos = arc.xt(theta);
+			Point tan = arc.tan(theta);
+			Point nor = tan.rotate(); // assumption that: globalccw
+
+			// 2. find max touch rad;
+			//for(each compared arc)
+			double minRad = _min_rad_init_val;
+			double temp;
+			for (int k = 0; k < arcs.size(); k++)
+			{
+				// 2-0. continue when same arc
+				if (i == k)
+					continue;
+
+				// 2-1. find point normal pair from this arc;
+				double rad = arcs[k].maxTouchRad(pos, nor, temp);
+				if (rad > 0.0 && rad < minRad)
+					minRad = rad;
+			}
+
+			// 3. check error-case, if (not) push
+			if (minRad != _min_rad_init_val)
+			{
+				auto center = pos + minRad * nor;
+				out.emplace_back(center, minRad * _h_disk_radius_multiplier);
+			}
+		}
+
+	}
+
+}
 #pragma endregion
 
 namespace ms{

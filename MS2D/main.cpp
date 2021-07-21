@@ -12,6 +12,8 @@
 
 planning::coneVoronoi coneVor;
 
+extern Point robotForward;
+
 namespace graphSearch
 {
 	extern std::vector<cd::lineSegmentCollisionTester> testers;
@@ -39,6 +41,202 @@ void
 	tessPathAlignTheta(vector<Vertex>& pathTess, std::vector<cd::pointCollisionTester>& pTesters, Point forwardDir);
 void 
 	tessPathClear(vector<Vertex>& in_path, double in_tessLen, vector<Vertex>& out_path);
+
+/*
+Def:
+
+Warnings:
+
+	collision test maybe wrong for extremely complicated scenario
+	use glo-var nofframe
+*/
+void optimizePath(vector<xyt>& _in_pos, vector<double>& _in_clr, vector<gs::EdgeType>& _in_ets, vector<xyt>& _out_opt_path)
+{
+	auto& pos = _in_pos;
+	auto& clr = _in_clr;
+	auto& ets = _in_ets;
+	auto& out = _out_opt_path;
+
+	// 1. find intervals that need optimization
+	using Itv = std::pair<int, int>;
+
+	vector<Itv> intervals; // edgeNo, half-open-interval [)
+	vector<bool> doOpt;
+
+	if(ets.size() > 0)
+	{
+		// 1-1. lambda : is this edge optimizable?
+		auto isOpt = [](gs::EdgeType et) ->bool
+		{
+			switch (et)
+			{
+			// case: do not optimize
+			case gs::etEndVer:
+			case gs::etStrVer:
+			case gs::etStrEnd:
+				return false;
+
+			// case: do optimize
+			case gs::etOff:
+			case gs::etVor:
+			case gs::etOcn:
+			case gs::etTan:
+			case gs::etTcn:
+			case gs::etIsc:
+			case gs::etStrHor:
+			case gs::etEndHor:
+			case gs::etUnknow:
+				return true;
+			}
+		};
+
+		// 1-2. find intervals
+		int 
+			state = isOpt(ets[0]), 
+			beg = 0;
+		for (int i = 1; i < ets.size(); i++)
+		{
+			int new_state = isOpt(ets[i]);
+			if (new_state != state)
+			{
+				intervals.push_back(make_pair(beg, i));
+				doOpt.push_back(state);
+
+				state = new_state;
+				beg = i;
+			}
+		}
+		// take care of last interval;
+		intervals.push_back(make_pair(beg, ets.size()));
+		doOpt.push_back(state);
+	}
+	else return;
+
+	// 2. do optimization
+	vector<xyt> temp;
+	{
+		for (int i = 0; i < intervals.size(); i++)
+		{
+			// 2-1. alias
+
+			// considering edges = [ei0, ei1)
+			auto ei0 = intervals[i].first;
+			auto ei1 = intervals[i].second; // might not be valid (when ei1 = ets.size())
+
+			// considering verts = [vi0, vi1)
+			auto vi0 = ei0;
+			auto vi1 = ei1;	// always valid
+
+			// 2-2.
+			if (doOpt[i])
+			{
+				// triv
+				if (vi1 - vi0 == 1)
+				{
+					temp.push_back(pos[i]);
+					continue;
+				}
+
+				// for optimizing case, first build reduced path and add it to temp
+				vector<xyt> reducedPath;
+
+				int start = vi0;
+				for (auto i = vi0 + 2; i <= vi1; i++)
+				{
+					// 2-2-1. check whether reducing vert [start, i) is okay
+					bool reduceable = true;
+					{
+						// samples from straight line
+						vector<xyt> lineSamples;
+						for (int j = start; j < i; j++)
+						{
+							// warning : col test maybe unsafe?
+							double t = double(j - start) / (i - start);
+							xyt lineP = pos[start] * (1-t) + pos[i] * t;
+							lineP.t() = pos[j].t();
+							lineSamples.push_back(lineP);
+						}
+
+						// test collision
+						for (int j = 0; j < lineSamples.size(); j++)
+						{
+							int sliceNo = lineSamples[j].t() / 360.0 * ms::numofframe; // warning!!! numofframe
+							Point tested(lineSamples[j].x(), lineSamples[j].y());
+							Point closest;
+							bool ctRes = gs::testers2[sliceNo].testPrecise(tested, closest);
+							if (ctRes || (tested-closest).length2() < 1e-3 )
+							{
+								reduceable = false;
+								break;
+							}
+
+						}
+
+					}
+
+					if (reduceable)
+					{
+						// do nothing. go to next i 
+					}
+					else
+					{
+						// we know that [start, i-1) is reduceable => reduce
+						vector<xyt> lineSamples;
+						for (int j = start; j < (i - 1); j++)
+						{
+							// warning : col test maybe unsafe?
+							double t = double(j - start) / ((i - 1) - start);
+							xyt lineP = pos[start] * (1 - t) + pos[i-1] * t;
+							lineP.t() = pos[j].t();
+							lineSamples.push_back(lineP);
+						}
+						reducedPath.insert(reducedPath.end(), lineSamples.begin(), lineSamples.end());
+
+						start = i - 1; // notice that next i-value will be i+1. => the edge length is always > =2
+					}
+				}
+
+				// take care of last edge piece
+				if (start == vi1)
+				{
+					//do nothing
+				}
+				else if (start == vi1 - 1)
+				{
+					reducedPath.push_back(pos[start]);
+				}
+				else // start <= vi1 - 2
+				{
+					vector<xyt> lineSamples;
+					for (int j = start; j < vi1; j++)
+					{
+						// warning : col test maybe unsafe?
+						double t = double(j - start) / (vi1 - start);
+						xyt lineP = pos[start] * (1 - t) + pos[vi1] * t;
+						lineP.t() = pos[j].t();
+						lineSamples.push_back(lineP);
+					}
+					reducedPath.insert(reducedPath.end(), lineSamples.begin(), lineSamples.end());
+				}
+
+				// add to temp;
+				temp.insert(temp.end(), reducedPath.begin(), reducedPath.end());
+			}
+			else // (not  an optimizable edge set)
+			{
+				for (auto i = vi0; i < vi1; i++)
+				{
+					temp.push_back(pos[i]);
+				}
+			}
+		}
+		// take care of last vert
+		temp.push_back(pos.back());
+	}
+
+	// 9. swap
+	out = temp;
+}
 
 namespace ms {
 
@@ -2106,57 +2304,104 @@ namespace ms {
 
 			if (planning::keyboardflag['1'])
 			{
-				// 3. draw path
-				glBegin(GL_LINE_STRIP);
-				for (size_t i = 0; i < pathSize; i++)
+				//// 3. draw path
+				//glBegin(GL_LINE_STRIP);
+				//for (size_t i = 0; i < pathSize; i++)
+				//{
+				//	double ratio = (pathPtr[3 * i + 2]) / 360.0;
+				//	glColor3f(1 - ratio, ratio, 0);
+				//	glVertex2d(pathPtr[3 * i + 0], pathPtr[3 * i + 1]);
+				//}
+				//glEnd();
+				//
+				//// 4.draw more robots;
+				//glColor3f(0.8, 0.8, 0.8);
+				//int nsample = pathSize / 50;
+				//if (nsample > 0)
+				//{
+				//	int d = pathSize / nsample;
+				//	for (int i = 0; i < nsample; i++)
+				//	{
+				//		int idx = d * i;
+				//
+				//		auto& robot = Models_Approx[robotIdx];
+				//		Point translation(pathPtr[3 * idx + 0], pathPtr[3 * idx + 1]);
+				//		double rotationDegree = pathPtr[3 * idx + 2];
+				//		for (auto& as : robot)
+				//			for (auto& arc : as.Arcs)
+				//			{
+				//				cd::translateArc(cd::rotateArc(arc, rotationDegree + 180.0), translation).draw();
+				//			}
+				//		glPointSize(4.0f);
+				//		glBegin(GL_POINTS);
+				//		glVertex3d(translation.P[0], translation.P[1], -0.5);
+				//		glEnd();
+				//	}
+				//
+				//	int idx = pathSize - 1;
+				//	{
+				//		auto& robot = Models_Approx[robotIdx];
+				//		Point translation(pathPtr[3 * idx + 0], pathPtr[3 * idx + 1]);
+				//		double rotationDegree = pathPtr[3 * idx + 2];
+				//		for (auto& as : robot)
+				//			for (auto& arc : as.Arcs)
+				//			{
+				//				cd::translateArc(cd::rotateArc(arc, rotationDegree + 180.0), translation).draw();
+				//			}
+				//		glPointSize(4.0f);
+				//		glBegin(GL_POINTS);
+				//		glVertex3d(translation.P[0], translation.P[1], -0.5);
+				//		glEnd();
+				//	}
+				//}
+
+				// draw CSO
+				if(pathIdx < mcPath.size())
 				{
-					double ratio = (pathPtr[3 * i + 2]) / 360.0;
-					glColor3f(1 - ratio, ratio, 0);
-					glVertex2d(pathPtr[3 * i + 0], pathPtr[3 * i + 1]);
+					int sliceNo = mcPath[pathIdx].z / 360.0 * ms::numofframe;
+					while (sliceNo >= ms::numofframe)
+						sliceNo -= ms::numofframe;
+					while (sliceNo < 0)
+						sliceNo += ms::numofframe;
+
+					//cout << "Sno: " <<  sliceNo << endl;
+					glColor3f(0.7, 0.7, 0.7);
+					for (auto& arc : graphSearch::VRINs[sliceNo].arcs)
+						arc.draw2();
 				}
-				glEnd();
-
-				// 4.draw more robots;
-				glColor3f(0.8, 0.8, 0.8);
-				int nsample = pathSize / 50;
-				if (nsample > 0)
+				
+				//debugging test
+				if (false)
 				{
-					int d = pathSize / nsample;
-					for (int i = 0; i < nsample; i++)
-					{
-						int idx = d * i;
+					vector<CircularArc> temp;
+					vector<Circle> res;
 
-						auto& robot = Models_Approx[robotIdx];
-						Point translation(pathPtr[3 * idx + 0], pathPtr[3 * idx + 1]);
-						double rotationDegree = pathPtr[3 * idx + 2];
-						for (auto& as : robot)
-							for (auto& arc : as.Arcs)
-							{
-								cd::translateArc(cd::rotateArc(arc, rotationDegree + 180.0), translation).draw();
-							}
-						glPointSize(4.0f);
-						glBegin(GL_POINTS);
-						glVertex3d(translation.P[0], translation.P[1], -0.5);
-						glEnd();
+					int sliceNo = mcPath[pathIdx].z / 360.0 * ms::numofframe;
+					while (sliceNo >= ms::numofframe)
+						sliceNo -= ms::numofframe;
+					while (sliceNo < 0)
+						sliceNo += ms::numofframe;
+
+					// build temp
+					for (int i = 0; i < graphSearch::VRINs[sliceNo].arcs.size(); i++)
+					{
+						if (graphSearch::VRINs[sliceNo].color[i] == 1.0)
+							break;
+
+						
+						temp.push_back(flipArc(graphSearch::VRINs[sliceNo].arcs[i]));
 					}
 
-					int idx = pathSize - 1;
-					{
-						auto& robot = Models_Approx[robotIdx];
-						Point translation(pathPtr[3 * idx + 0], pathPtr[3 * idx + 1]);
-						double rotationDegree = pathPtr[3 * idx + 2];
-						for (auto& as : robot)
-							for (auto& arc : as.Arcs)
-							{
-								cd::translateArc(cd::rotateArc(arc, rotationDegree + 180.0), translation).draw();
-							}
-						glPointSize(4.0f);
-						glBegin(GL_POINTS);
-						glVertex3d(translation.P[0], translation.P[1], -0.5);
-						glEnd();
-					}
+					// build res
+					findInteriorDisks(temp, 1, res);
+
+					for (auto& c : res)
+						c.draw();
 				}
 			}
+
+
+
 			// 5. draw robot when robot is being pressed;
 			if (clickNow)
 				if (clickStatus == 0 || clickStatus == 1)
@@ -2198,12 +2443,19 @@ namespace ms {
 				}
 			}
 
-			// 7. draw arcPath
+			// 7. draw optimized path  //changed from://draw arcPath
 			glColor3f(0, 0, 0);
 			if (planning::keyboardflag['3'])
+				//{
+				//	for (auto& arc : arcPath)
+				//		arc.draw2();
+				//}
 			{
-				for (auto& arc : arcPath)
-					arc.draw2();
+				glColor3f(0, 0.8, 0);
+				glBegin(GL_LINE_STRIP);
+				for (auto& v : pathGraphSearch)
+					glVertex2d(v.x, v.y);
+				glEnd();
 			}
 
 			// 8. robot following path
@@ -2242,7 +2494,7 @@ namespace ms {
 			}
 
 			// 9. draw starting/end point
-			if (planning::keyboardflag['4'])
+			if (!planning::keyboardflag['4'] && mcPath.size() > 0)
 			{
 				// start
 				{
@@ -2524,52 +2776,90 @@ namespace ms {
 						
 						// ii. run a-star
 						std::vector<Vertex> path;
+						vector<xyt> dijkresult;
+						std::vector<double> vertClr;
+						std::vector<gs::EdgeType> ets;
 						bool useDijk = true;
+						bool useDijk2 = true;
 						if (useDijk)
 						{
-							vector<int> vertIdxList;
-							xyt 
-								s(sx, sy, sz), 
-								e(ex, ey, ez);
-
-							// if(path exists)
-							if (gs::dijk.searchGraph(s, e, vertIdxList))
+							if (useDijk2)
 							{
-								Vertex sv(sx, sy, sz);
-								Vertex ev(ex, ey, ez);
+								xyt
+									s(sx, sy, sz),
+									e(ex, ey, ez);
 
-								path.push_back(sv);
-								for (auto i : vertIdxList)
+								if (gs::dijk.searchGraph2(s, e, dijkresult, vertClr, ets, robotForward))
 								{
-									auto& v = gs::dijk.getVert()[i];
-									
-									Vertex temp;
-									temp.x = v.x();
-									temp.y = v.y();
-									temp.z = v.t();
-									path.push_back(temp);
-								}
-								path.push_back(ev);
+									for (auto v : dijkresult)
+									{
+										Vertex temp;
+										temp.x = v.x();
+										temp.y = v.y();
+										temp.z = v.t();
 
-								// debug out
-								int i = 0;
-								for (auto& p : path)
+										path.push_back(temp);
+									}
+								}
+								else
 								{
-									cout << "dijk path: "<< i << ":" << p.x << " , " << p.y << " , " << p.z << endl;
-									i++;
+									cout << "Dijkstra: no path" << endl;
+									auto t0 = std::chrono::high_resolution_clock::now();
+									auto t1 = t0;
+									auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+									while (ms < 1000.0)
+									{
+										t1 = std::chrono::high_resolution_clock::now();
+										ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+									}
 								}
-
 							}
 							else
 							{
-								cout << "Dijkstra: no path" << endl;
-								auto t0 = std::chrono::high_resolution_clock::now();
-								auto t1 = t0;
-								auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-								while (ms < 1000.0)
+								vector<int> vertIdxList;
+								xyt
+									s(sx, sy, sz),
+									e(ex, ey, ez);
+
+								// if(path exists)
+								if (gs::dijk.searchGraph(s, e, vertIdxList))
 								{
-									t1 = std::chrono::high_resolution_clock::now();
-									ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+									Vertex sv(sx, sy, sz);
+									Vertex ev(ex, ey, ez);
+
+									path.push_back(sv);
+									for (auto i : vertIdxList)
+									{
+										auto& v = gs::dijk.getVert()[i];
+
+										Vertex temp;
+										temp.x = v.x();
+										temp.y = v.y();
+										temp.z = v.t();
+										path.push_back(temp);
+									}
+									path.push_back(ev);
+
+									// debug out
+									int i = 0;
+									for (auto& p : path)
+									{
+										cout << "dijk path: " << i << ":" << p.x << " , " << p.y << " , " << p.z << endl;
+										i++;
+									}
+
+								}
+								else
+								{
+									cout << "Dijkstra: no path" << endl;
+									auto t0 = std::chrono::high_resolution_clock::now();
+									auto t1 = t0;
+									auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+									while (ms < 1000.0)
+									{
+										t1 = std::chrono::high_resolution_clock::now();
+										ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+									}
 								}
 							}
 						}
@@ -2600,13 +2890,39 @@ namespace ms {
 							// path : 
 							//tessPathAlignTheta(arcPathTess, graphSearch::testers2, Point(0, 1));
 						}
+						if (true)
+						{
+							for (int i = 0; i < ets.size(); i++)
+							{
+								cout 
+									<< "edge " << i << " : " << gs::et2str(ets[i]) << endl
+									<< "  vert0 : " << path[i  ].x << ", " << path[i  ].y << ", " << path[i  ].z << ", " << vertClr[i  ] << endl
+									<< "  vert1 : " << path[i+1].x << ", " << path[i+1].y << ", " << path[i+1].z << ", " << vertClr[i+1] << endl;
+							}
+						}
 
 						// save mcPath
 						pathGraphSearch = path;
-						mcPath.clear();
-						tessPathClear(path, 0.004, mcPath);
+
+						vector<xyt> optPath;
+						optimizePath(dijkresult, vertClr, ets, optPath);
+
+						vector<Vertex> path2;
+						for (auto v : optPath)
+						{
+							Vertex temp;
+							temp.x = v.x();
+							temp.y = v.y();
+							temp.z = v.t();
+
+							path2.push_back(temp);
+						}
+
+						mcPath.clear(); //drawing path
+						tessPathClear(path2, 0.004, mcPath);
 						pathSize = mcPath.size();
 						pathType = 0;
+						pathIdx = 0;
 
 						{
 						//// iii. do refinement.

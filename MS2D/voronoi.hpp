@@ -443,6 +443,6 @@ public:
 	void initialize();
 };
 
-inline bool Key(char c) { return planning::keyboardflag[c]; }
-inline bool Key2(char c) { return planning::keyboardflag_last[c]; }
+inline bool& Key(char c) { return planning::keyboardflag[c]; }
+inline bool& Key2(char c) { return planning::keyboardflag_last[c]; }
 inline bool Key3(char c) { return planning::keyboardflag[c] != planning::keyboardflag_last[c]; }

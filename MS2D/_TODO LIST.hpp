@@ -59,4 +59,16 @@ TODO LIST
 17. add func: see edges in motion planning
 18. fix robot animation
 19. how to make better start/end connection?
+20. optimize SearchGraph2 (listS?)
+21. (DONE) search graph2 : when robot can rotate 360 -> end/first angle connection is needed
+22. change elist to take property
+
+23. fig12(edge strange)
+24. make more scenes + image
+	0. (vor only path) + opt
+	1. trail robot
+	2. object's with font
+	3. read file(model editor)
+	4. pick loop(model editor) + delete
+	5. add boundary?
 */
