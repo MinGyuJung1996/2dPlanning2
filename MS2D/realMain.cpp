@@ -9,7 +9,9 @@ using namespace std;
 extern double vbRad;
 
 #define COUT(x) #x ": " << x 
+#define ONLY_USE_VORONOI_IN_GRAPH true
 
+#pragma region NS
 namespace ms
 {
 	int main(int argc, char *argv[]);
@@ -43,7 +45,6 @@ namespace ms
 		extern Graph theGr;
 	}
 }
-
 namespace rendering3D
 {
 	void renderCSObject(
@@ -57,7 +58,6 @@ namespace rendering3D
 		int main3(int argc, char* argv[]);
 	}
 }
-
 namespace graphSearch
 {
 
@@ -65,7 +65,6 @@ namespace graphSearch
 	void searchTest();
 	int main2(int argc, char* argv[]);
 }
-
 namespace sceneEditor
 {
 	int main(int argc, char* argv[]);
@@ -74,6 +73,7 @@ namespace modelEditor
 {
 	int main(int argc, char* argv[]);
 }
+#pragma endregion
 
 int main(int argc, char *argv[]) {
 
@@ -255,11 +255,18 @@ namespace graphSearch
 	*/
 	int main2(int argc, char* argv[])
 	{
-		int robotType = 1;
-		int obsType   = 10;
-		/* options:
+		int robotType = 4;
+		/*
+		1 : 8
+		3 : 8-2
+		*/
+		int obsType   = 3;
+		/* options: (obs)
+		3: curved S corridor
 		1,4 1,5 
 		1,6~11 (made with modelEditor)
+		12: pg2021
+		13: maze
 		*/
 
 
@@ -395,7 +402,7 @@ namespace graphSearch
 		cout << "mink + voronoi time : "
 			<< double(mvEndTime - mvStartTime) / 1000 << "s" << endl;
 
-		
+
 		//// 1-2. build collisionTesters 
 		auto cdInitStartTime = clock();
 		testers.resize(ms::numofframe);
@@ -421,8 +428,18 @@ namespace graphSearch
 			//<< ms::numofframe << " : " 
 			<< double(cdInitEndTime - cdInitStartTime) / 1000 <<"s"<< endl;
 
-		vector<vector<lseg>> vorBackup; //dijkInput
-		vorBackup = planning::output_to_file::v_edges;
+
+		// renderminkvoronoi : mink/ vor only
+		if (0)
+		{
+			std::vector<std::vector<v_edge>>&
+				v_edges = planning::output_to_file::v_edges;
+
+			_h_fmdsp_g1 = 1e-3;
+			ms::renderMinkVoronoi(argc, argv, MRs, MIBs, v_edges, planning::voronoiBoundary);
+			//ms::renderMinkVoronoi(argc, argv, offsetMRs, offsetMIBs, v_edges, planning::voronoiBoundary);
+		}
+
 
 		// 1-3. build offset curves.
 		auto offsetStartTime = clock();
@@ -955,7 +972,9 @@ namespace graphSearch
 		}
 
 		// WARNING:
-		// simply add offset to vorEdges
+		// simply add offset to vorEdges => needed since... tan calc for both (vor/off)
+		vector<vector<lseg>> vorBackup; //dijkInput
+		vorBackup = planning::output_to_file::v_edges; // backup of pure voronoi
 		if(true)
 		{
 			auto& ves = planning::output_to_file::v_edges;
@@ -1202,6 +1221,16 @@ namespace graphSearch
 		}
 
 		auto gt0 = clock();
+		//if (ONLY_USE_VORONOI_IN_GRAPH)
+		//{
+		//	for (int i = 0; i < ms::numofframe; i++)
+		//	{
+		//		offCso		[i].clear();
+		//		offCon		[i].clear();
+		//		comTan		[i].clear();
+		//		comTanCon	[i].clear();
+		//	}
+		//}
 		dijk.buildGraph(ms::numofframe, vorBackup, offCso, offCon, comTan, comTanCon, robotForward);
 		auto gt1 = clock();
 		cout << COUT(robotForward) << endl;

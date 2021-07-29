@@ -3,6 +3,7 @@
 #include "xyt-cs.hpp"
 
 #define COUT(x) #x " : " << x
+#define ONLY_USE_VORONOI_IN_GRAPH true
 
 namespace graphSearch
 {
@@ -197,6 +198,7 @@ djkCalc::buildGraph
 			}
 
 			// 1-2. offset curves
+			if (!ONLY_USE_VORONOI_IN_GRAPH)
 			for (auto& e : off[sn])
 			{
 				//// i. vm & pl & cl (new)
@@ -281,6 +283,7 @@ djkCalc::buildGraph
 			}
 
 			// 1-3. offset connector
+			if (!ONLY_USE_VORONOI_IN_GRAPH)
 			for (auto& e : ocn[sn])
 			{
 				//// i. vm & pl & cl (new)
@@ -365,6 +368,7 @@ djkCalc::buildGraph
 			}
 
 			// 1-4. common tangent
+			if(!ONLY_USE_VORONOI_IN_GRAPH)
 			for (auto& e : tan[sn])
 			{
 				//// i. vm & pl & cl (new)
@@ -449,6 +453,7 @@ djkCalc::buildGraph
 			}
 
 			// 1-5. common tangent connectors
+			if(!ONLY_USE_VORONOI_IN_GRAPH)
 			for (auto& e : tcn[sn])
 			{
 				//// i. vm & pl & cl (new)
@@ -563,6 +568,7 @@ djkCalc::buildGraph
 			// dbg
 			int dbgVar = 1;
 
+
 			// for(each pt pair)
 			for(int i = 1; i < v0.size(); i++)
 			for(int j = 1; j < v1.size(); j++)
@@ -596,6 +602,8 @@ djkCalc::buildGraph
 			}
 
 
+			////dbg_out
+			//std::cout << "Connect btw: " << v0.size() << " x " << v1.size() << " = " << edg.size() << endl;
 		}
 		
 	}
@@ -1722,6 +1730,7 @@ gs::Weight djkCalc::nhMultiplier(const Point& p, const Point& q, Point& forward,
 	//else
 	//	return 1e100;
 
+	return floor(((1 - abs(dot)) * 20.0)) + 1.0;
 	return floor(((1 - abs(dot)) * 10.0)) + 1.0;
 }
 

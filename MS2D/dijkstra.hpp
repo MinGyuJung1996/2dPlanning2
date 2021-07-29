@@ -4,6 +4,9 @@
 #include <boost/graph/dijkstra_shortest_paths.hpp>
 #include "xyt-cs.hpp"
 
+#define djkUseInterSliceBound false
+#define djkInterSliceBound 0.1
+#define djkInterSliceWeightMultiplier 1.1
 /*
 Tweakables
 
@@ -160,9 +163,6 @@ namespace graphSearch
 }
 namespace gs = graphSearch;
 
-#define djkUseInterSliceBound true
-#define djkInterSliceBound 0.1
-#define djkInterSliceWeightMultiplier 1.2
 //#define ptEqdist // currently static double of PointCompare
 class djkCalc
 {

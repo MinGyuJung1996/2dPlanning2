@@ -45,6 +45,11 @@ void
 /*
 Def:
 
+Param:
+	pos
+	clr
+	ets : edge type
+
 Warnings:
 
 	collision test maybe wrong for extremely complicated scenario
@@ -237,6 +242,204 @@ void optimizePath(vector<xyt>& _in_pos, vector<double>& _in_clr, vector<gs::Edge
 	// 9. swap
 	out = temp;
 }
+
+/*
+Def:
+	more optimization compared to optimizePath()
+Ref
+	OptimizePath
+
+*/
+void optimizePath(vector<xyt>& _in_pos, vector<double>& _in_clr, vector<gs::EdgeType>& _in_ets, vector<CircularArc>& _in_rob, vector<xyt>& _out_opt_path)
+{
+	auto& pos = _in_pos;
+	auto& clr = _in_clr;
+	auto& ets = _in_ets;
+	auto& rob = _in_rob;
+	auto& out = _out_opt_path;
+
+	// 1. find intervals that need optimization
+	using Itv = std::pair<int, int>;
+
+	vector<Itv> intervals; // edgeNo, half-open-interval [)
+	vector<bool> doOpt;
+
+	if(ets.size() > 0)
+	{
+		// 1-1. lambda : is this edge optimizable?
+		auto isOpt = [](gs::EdgeType et) ->bool
+		{
+			switch (et)
+			{
+			// case: do not optimize
+			case gs::etEndVer:
+			case gs::etStrVer:
+			case gs::etStrEnd:
+				return false;
+
+			// case: do optimize
+			case gs::etOff:
+			case gs::etVor:
+			case gs::etOcn:
+			case gs::etTan:
+			case gs::etTcn:
+			case gs::etIsc:
+			case gs::etStrHor:
+			case gs::etEndHor:
+			case gs::etUnknow:
+				return true;
+			}
+		};
+
+		// 1-2. find intervals
+		int 
+			state = isOpt(ets[0]), 
+			beg = 0;
+		for (int i = 1; i < ets.size(); i++)
+		{
+			int new_state = isOpt(ets[i]);
+			if (new_state != state)
+			{
+				intervals.push_back(make_pair(beg, i));
+				doOpt.push_back(state);
+
+				state = new_state;
+				beg = i;
+			}
+		}
+		// take care of last interval;
+		intervals.push_back(make_pair(beg, ets.size()));
+		doOpt.push_back(state);
+	}
+	else return;
+
+	// 2. do optimization
+	vector<xyt> temp; // temp-carry vert
+	vector<bool> optMore; // whether this vert is optimized more
+	{
+		for (int i = 0; i < intervals.size(); i++)
+		{
+			// 2-1. alias
+
+			// considering edges = [ei0, ei1)
+			auto ei0 = intervals[i].first;
+			auto ei1 = intervals[i].second; // might not be valid (when ei1 = ets.size())
+
+			// considering verts = [vi0, vi1)
+			auto vi0 = ei0;
+			auto vi1 = ei1;	// always valid
+
+			// 2-2. if(optimizable) do opt; else just push
+			if (doOpt[i])
+			{
+				// triv
+				if (vi1 - vi0 == 1)
+				{
+					temp.push_back(pos[i]);
+					continue;
+				}
+
+				// for optimizing case, first build reduced path and add it to temp
+				vector<xyt> reducedPath;
+
+				int start = vi0;
+				for (auto i = vi0 + 2; i <= vi1; i++)
+				{
+					// 2-2-1. check whether reducing vert [start, i) is okay
+					bool reduceable = true;
+					{
+						// samples from straight line
+						vector<xyt> lineSamples;
+						for (int j = start; j < i; j++)
+						{
+							// warning : col test maybe unsafe?
+							double t = double(j - start) / (i - start);
+							xyt lineP = pos[start] * (1-t) + pos[i] * t;
+							lineP.t() = pos[j].t();
+							lineSamples.push_back(lineP);
+						}
+
+						// test collision
+						for (int j = 0; j < lineSamples.size(); j++)
+						{
+							int sliceNo = lineSamples[j].t() / 360.0 * ms::numofframe; // warning!!! numofframe
+							Point tested(lineSamples[j].x(), lineSamples[j].y());
+							Point closest;
+							bool ctRes = gs::testers2[sliceNo].testPrecise(tested, closest);
+							if (ctRes || (tested-closest).length2() < 1e-3 )
+							{
+								reduceable = false;
+								break;
+							}
+
+						}
+
+					}
+
+					if (reduceable)
+					{
+						// do nothing. go to next i 
+					}
+					else
+					{
+						// we know that [start, i-1) is reduceable => reduce
+						vector<xyt> lineSamples;
+						for (int j = start; j < (i - 1); j++)
+						{
+							// warning : col test maybe unsafe?
+							double t = double(j - start) / ((i - 1) - start);
+							xyt lineP = pos[start] * (1 - t) + pos[i-1] * t;
+							lineP.t() = pos[j].t();
+							lineSamples.push_back(lineP);
+						}
+						reducedPath.insert(reducedPath.end(), lineSamples.begin(), lineSamples.end());
+
+						start = i - 1; // notice that next i-value will be i+1. => the edge length is always > =2
+					}
+				}
+
+				// take care of last edge piece
+				if (start == vi1)
+				{
+					//do nothing
+				}
+				else if (start == vi1 - 1)
+				{
+					reducedPath.push_back(pos[start]);
+				}
+				else // start <= vi1 - 2
+				{
+					vector<xyt> lineSamples;
+					for (int j = start; j < vi1; j++)
+					{
+						// warning : col test maybe unsafe?
+						double t = double(j - start) / (vi1 - start);
+						xyt lineP = pos[start] * (1 - t) + pos[vi1] * t;
+						lineP.t() = pos[j].t();
+						lineSamples.push_back(lineP);
+					}
+					reducedPath.insert(reducedPath.end(), lineSamples.begin(), lineSamples.end());
+				}
+
+				// add to temp;
+				temp.insert(temp.end(), reducedPath.begin(), reducedPath.end());
+			}
+			else // (not  an optimizable edge set)
+			{
+				for (auto i = vi0; i < vi1; i++)
+				{
+					temp.push_back(pos[i]);
+				}
+			}
+		}
+		// take care of last vert
+		temp.push_back(pos.back());
+	}
+
+	// 9. swap
+	out = temp;
+}
+
 
 namespace ms {
 
@@ -1393,6 +1596,12 @@ namespace ms {
 		return 0;
 	}
 
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	//
+	//
+	//
+	//
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 	namespace renderMinkVoronoiGlobal
 	{
@@ -1405,6 +1614,12 @@ namespace ms {
 		decltype(planning::voronoiBoundary) voronoiBoundary;
 		int& sliceIdx = ms::t2;
 
+		string manual = R"del(~~~~Manual~~~~
+0:
+1:
+2:
+3:
+)del";
 	}
 	/*
 	similar struct to main funcs
@@ -1498,7 +1713,12 @@ namespace ms {
 			for (auto& as : scene)
 				for (auto& arc : as.Arcs)
 					arc.draw();
-			
+			if (Key('4'))
+			{
+				for (auto& d : InteriorDisks_Imported[sceneIdx])
+					d.draw();
+			}
+
 			// VIEWPORT 1 (Lower-Left) : darw robot
 			glViewport(0, ht / 2, wd * 1 / 3, ht / 2);
 			auto& robot = Models_Approx[robotIdx];
@@ -1508,7 +1728,12 @@ namespace ms {
 				{
 					cd::rotateArc(arc, sliceIdx * 360.0 / ms::numofframe).draw();
 				}
-			
+			if (Key('4'))
+			{
+				for (auto& d : InteriorDisks_Imported[robotIdx])
+					d.draw();
+			}
+
 			// VIEWPORT 2 (RIGHT) : draw mink/voronoi
 			glViewport(wd * 1 / 3, 0, wd * 2 / 3, ht);
 			auto& MR		= renderMinkVoronoiGlobal::MRs[sliceIdx];
@@ -1860,7 +2085,7 @@ namespace ms {
 				// drawOffset too
 				if (Key('8'))
 				{
-					
+
 					static double offset = 0.3;
 					if (Key3('-'))
 						offset -= 0.01;
@@ -1984,6 +2209,14 @@ namespace ms {
 
 		glutMainLoop();
 	}
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	//
+	//
+	//
+	//
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 
 	namespace renderPathGlobal
 	{
@@ -2302,6 +2535,7 @@ namespace ms {
 			//glVertex3d(translation.P[0], translation.P[1], -0.5);
 			//glEnd();
 
+			// draw CSO
 			if (planning::keyboardflag['1'])
 			{
 				//// 3. draw path
@@ -2400,8 +2634,6 @@ namespace ms {
 				}
 			}
 
-
-
 			// 5. draw robot when robot is being pressed;
 			if (clickNow)
 				if (clickStatus == 0 || clickStatus == 1)
@@ -2491,14 +2723,39 @@ namespace ms {
 				glVertex3d(translation.P[0], translation.P[1], -0.5);
 				glEnd();
 
+
+				// hyp
+				bool doFilling = true;
+				if (doFilling)
+				{
+					// find disks
+					vector<Circle> disks;
+					findInteriorDisks2(ms::Model_vca[robotIdx], 0.01, disks); 
+					for (auto c : disks)
+					{
+						c.c = c.c.rotate((rotationDegree + 180.0) / 180.0 * PI);
+						c.c = c.c + translation;
+						c.draw();
+					}
+				}
 			}
 
 			// 9. draw starting/end point
 			if (!planning::keyboardflag['4'] && mcPath.size() > 0)
 			{
+				// hyp
+				bool doFilling = true;
+
+				// find disks
+				vector<Circle> disks;
+				{
+					findInteriorDisks2(ms::Model_vca[robotIdx], 0.01, disks);
+				}
+
 				// start
 				{
-					glColor3f(1, 0.8, 0.8);
+					glColor3f(.4, .4, .4);
+					//glColor3f(1, 0.8, 0.8);
 					auto& robot = Models_Approx[robotIdx];
 					Point translation(mcPath.front().x, mcPath.front().y);
 					double rotationDegree = mcPath.front().z;
@@ -2511,11 +2768,23 @@ namespace ms {
 					glBegin(GL_POINTS);
 					glVertex3d(translation.P[0], translation.P[1], -0.5);
 					glEnd();
+
+					if (doFilling)
+					{
+						for (auto c : disks)
+						{
+							c.c = c.c.rotate((rotationDegree + 180.0) / 180.0 * PI);
+							c.c = c.c + translation;
+							c.draw();
+						}
+					}
 				}
 
 				// end
 				{
-					glColor3f(0.8, 0.8, 1);
+					glColor3f(.4, .4, .4);
+					//glColor3f(0.8, 0.8, 1);
+
 					auto& robot = Models_Approx[robotIdx];
 					Point translation(mcPath.back().x, mcPath.back().y);
 					double rotationDegree = mcPath.back().z;
@@ -2528,9 +2797,20 @@ namespace ms {
 					glBegin(GL_POINTS);
 					glVertex3d(translation.P[0], translation.P[1], -0.5);
 					glEnd();
+
+					if (doFilling)
+					{
+						for (auto c : disks)
+						{
+							c.c = c.c.rotate((rotationDegree + 180.0) / 180.0 * PI);
+							c.c = c.c + translation;
+							c.draw();
+						}
+					}
 				}
 			}
 
+			// 
 			if (Key('5'))
 			{
 				using namespace gs;
@@ -2619,6 +2899,30 @@ namespace ms {
 				}
 			}
 
+			// draw robot's sweep volume
+			if (Key('8'))
+			{
+
+				glColor3f(.2, .2, .2);
+				glLineWidth(0.5);
+
+				for (int i = 0; i < mcPath.size(); i++)
+				{
+					auto& robot = Models_Approx[robotIdx];
+					Point translation(mcPath[i].x, mcPath[i].y);
+					double rotationDegree = mcPath[i].z;
+					for (auto& as : robot)
+						for (auto& arc : as.Arcs)
+						{
+							cd::translateArc(cd::rotateArc(arc, rotationDegree + 180.0), translation).draw();
+						}
+					//glPointSize(4.0f);
+					//glBegin(GL_POINTS);
+					//glVertex3d(translation.P[0], translation.P[1], -0.5);
+					//glEnd();
+				}
+			}
+
 			// 98. change mode
 			if (planning::keyboardflag['0'] != planning::keyboardflag_last['0'])
 			{
@@ -2661,10 +2965,10 @@ namespace ms {
 		{
 
 			if (button == 3)
-				clickedZ += 15.0;
+				clickedZ += 7.5;
 
 			if (button == 4)
-				clickedZ -= 15.0;
+				clickedZ -= 7.5;
 
 			if (button == GLUT_LEFT_BUTTON && action == GLUT_DOWN)
 			{
@@ -2883,7 +3187,7 @@ namespace ms {
 
 							// path : tess
 							arcPathTess.clear();
-							tessPathBiarc(arcPath, arcPathRot, 0.004, arcPathTess);
+							tessPathBiarc(arcPath, arcPathRot, 0.04, arcPathTess);
 							pathSize = arcPathTess.size();
 							pathIdx = 0;
 
@@ -2919,7 +3223,7 @@ namespace ms {
 						}
 
 						mcPath.clear(); //drawing path
-						tessPathClear(path2, 0.004, mcPath);
+						tessPathClear(path2, 0.02, mcPath);
 						pathSize = mcPath.size();
 						pathType = 0;
 						pathIdx = 0;
@@ -3046,6 +3350,14 @@ namespace ms {
 		int& sliceIdx = ms::t2;
 
 		std::vector<cd::lineSegmentCollisionTester> testers;
+
+		string manual = R"del(~~~~Manual~~~~
+0:
+1:
+2:
+3:
+)del";
+
 	}
 	/*
 	almost a copy of renderMinkVoronoi,
@@ -3153,6 +3465,7 @@ namespace ms {
 			for (auto& as : scene)
 				for (auto& arc : as.Arcs)
 					arc.draw();
+			
 
 			// VIEWPORT 1 (Lower-Left) : darw robot
 			glViewport(0, ht / 2, wd * 1 / 3, ht / 2);

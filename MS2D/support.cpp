@@ -8,6 +8,10 @@
 #define derr cerr
 extern vector<double> debugBlock;
 
+#define OPT_limitCvxOffsetRadius	  true
+#define OPT_limitCvxOffsetRadiusValue 5.0
+#define OPT_betterCvxOffsetLineNormal false
+
 /*
 Def: 
 	Simple constructor
@@ -615,28 +619,33 @@ void ConvexHullCalculator::offset(vector<CircularArc>& in, vector<CircularArc>& 
 		// 2. offset original Arc
 		auto arc = in[i];
 
-		arc.cr() = arc.cr() + offRad;
-		arc.x0() = arc.n0() * arc.cr() + arc.cc();
-		arc.x1() = arc.n1() * arc.cr() + arc.cc();
-
-		//if (arc.cr() < lineRad())
-		//{
-		//	// when this is normal arc => change r
-		//	arc.cr() = arc.cr() + offRad;
-		//	arc.x0() = arc.n0() * arc.cr() + arc.cc();
-		//	arc.x1() = arc.n1() * arc.cr() + arc.cc();
-		//}
-		//else
-		//{
-		//	//when the arc represents a straight line => translate
-		//	Point trans = arc.x1() - arc.x0();
-		//	trans.normalize();
-		//	trans = -trans.rotate(); // as ccw;
-		//
-		//	arc.cc() = arc.cc() + trans * offRad;
-		//	arc.x0() = arc.x0() + trans * offRad;
-		//	arc.x1() = arc.x1() + trans * offRad;
-		//}
+		if (!OPT_betterCvxOffsetLineNormal)
+		{
+			arc.cr() = arc.cr() + offRad;
+			arc.x0() = arc.n0() * arc.cr() + arc.cc();
+			arc.x1() = arc.n1() * arc.cr() + arc.cc();
+		}
+		else
+		{
+			if (arc.cr() < lineRad())
+			{
+				// when this is normal arc => change r
+				arc.cr() = arc.cr() + offRad;
+				arc.x0() = arc.n0() * arc.cr() + arc.cc();
+				arc.x1() = arc.n1() * arc.cr() + arc.cc();
+			}
+			else
+			{
+				//when the arc represents a straight line => translate
+				Point trans = arc.x1() - arc.x0();
+				trans.normalize();
+				trans = -trans.rotate(); // as ccw;
+			
+				arc.cc() = arc.cc() + trans * offRad;
+				arc.x0() = arc.x0() + trans * offRad;
+				arc.x1() = arc.x1() + trans * offRad;
+			}
+		}
 
 		out.push_back(arc);
 
@@ -645,7 +654,7 @@ void ConvexHullCalculator::offset(vector<CircularArc>& in, vector<CircularArc>& 
 		bool g1;
 		{
 			auto dot = arc.n1() * in[iNext].n0();
-			if (fabs(dot) > 1 - errG1) // note : theoeretically, fabs is not needed.
+			if (abs(dot) > 1 - errG1) // note : theoeretically, fabs is not needed.
 				g1 = true;
 			else
 				g1 = false;
@@ -657,8 +666,40 @@ void ConvexHullCalculator::offset(vector<CircularArc>& in, vector<CircularArc>& 
 			CircularArc arc;
 			arc.cc() = in[iNext].x0();
 			arc.cr() = offRad;
-			arc.n0() = in[i].n1();
-			arc.n1() = in[iNext].n0();
+
+			// set n0, n1
+			if (!OPT_betterCvxOffsetLineNormal)
+			{
+				arc.n0() = in[i].n1();
+				arc.n1() = in[iNext].n0();
+			}
+			else
+			{
+				if (in[i].cr() >= lineRad())
+				{
+					auto tan = in[i].x1() - in[i].x0();
+					tan.normalize();
+					tan = -tan.rotate(); // assume ccw cvxHull
+					arc.n0() = tan;
+				}
+				else
+				{
+					arc.n0() = in[i].n1();
+				}
+
+				if (in[iNext].cr() >= lineRad())
+				{
+					auto tan = in[iNext].x1() - in[iNext].x0();
+					tan.normalize();
+					tan = -tan.rotate(); // assume ccw cvxHull
+					arc.n1() = tan;
+				}
+				else
+				{
+					arc.n1() = in[iNext].n0();
+				}
+			}
+			
 			arc.x0() = arc.n0() * arc.cr() + arc.cc();	
 			arc.x1() = arc.n1() * arc.cr() + arc.cc();
 
@@ -667,10 +708,26 @@ void ConvexHullCalculator::offset(vector<CircularArc>& in, vector<CircularArc>& 
 
 	}
 
-	// do refinement
-	vector<CircularArc> temp;
-	Refiner::g1(out, temp);
-	out.swap(temp);
+	// 5. numerical error controll
+	if (OPT_limitCvxOffsetRadius)
+	{
+		for (auto& a : out)
+		{
+			if (a.cr() >= lineRad())
+			{
+				a = cd::constructArc(a.x0(), a.x1(), OPT_limitCvxOffsetRadiusValue, a.ccw, true);
+			}
+		}
+
+		vector<CircularArc> temp;
+		Refiner::g1(out, temp);
+		out.swap(temp);
+	}
+
+	//// do refinement
+	//vector<CircularArc> temp;
+	//Refiner::g1(out, temp);
+	//out.swap(temp);
 }
 
 

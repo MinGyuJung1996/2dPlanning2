@@ -20,6 +20,9 @@ static const double PI		=		3.14159265358979323846264;
 static const double PI2		= 2 *	3.14159265358979323846264;
 static const double PI_half	= 0.5 * 3.14159265358979323846264;
 
+#define useApproxInSymmetryCollision true
+#define useNewerVersionOfG1conveter false
+
 namespace ms
 {
 	class CircularArc;
@@ -46,6 +49,9 @@ void
 findInteriorDisks(std::vector<ms::CircularArc>& _in_model, int _in_sampling_rate, std::vector<ms::Circle>& _out_disks);
 void 
 findInteriorDisks2(std::vector<ms::CircularArc>& _in_model, double _in_sampling_length, std::vector<ms::Circle>& _out_disks);
+void
+findInteriorDisksWithIdx(std::vector<ms::CircularArc>& _in_model, std::vector<int>& _in_idx, double _in_sampling_length, std::vector<ms::Circle>& _out_disks, std::vector<int>& _out_idx);
+
 
 
 

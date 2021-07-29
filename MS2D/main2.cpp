@@ -6,6 +6,14 @@
 #include "xyt-cs.hpp"
 #include "refine.hpp"
 
+#define OPT_wireframeVoronoi3D true
+#define OPT_lightOption 2
+	// 0: light from camera pos
+	// 1: 6 light fixed
+	// 2: similar to 0, but another light symmetrical to origin
+#define OPT_drawVor3DfromTop false;
+#define OPT_vor3Dsamples 20
+
 
 #define COUT(x) #x ": " << x
 
@@ -33,8 +41,8 @@ namespace rendering3D
 		double
 			fovyInDegrees = 30.0,
 			aspectRatio = 1.0, // x/y
-			znear = 0.001,
-			zfar = 100.0;
+			znear = 0.1,
+			zfar = 10.0;
 		//gluPerspective(fovy, aspect, znear, zfar); // this breaks the code which turns bezier to arcs -> this seems like a v ery complicated bug... kind of circumvent it for now
 
 		double matrix[16];
@@ -673,6 +681,8 @@ namespace rendering3D
 
 		vector<xyt> path;
 
+		vector<Circle> Cover;
+
 		void tessellateVoronoiCurvePair(int in_nSamples, vector<VoronoiEdge>& in_vec0, vector<VoronoiEdge>& in_vec1, double in_z0, double in_z1, vector<xyt>& out_vert, vector<xyt>& out_norm);
 
 
@@ -725,18 +735,93 @@ namespace rendering3D
 
 			// 2-2. light
 			glEnable(GL_LIGHTING);
-			float ambLight[4] = { 0.1, 0.1, 0.1, 1.0 };
-			float difLight[4] = { 0.8, 0.8, 0.8, 1.0 };
-			float posLight[4] = { cam.pos()[0], cam.pos()[1], cam.pos()[2], 1.0 };
-			glLightfv(GL_LIGHT0, GL_AMBIENT, ambLight);
-			glLightfv(GL_LIGHT0, GL_DIFFUSE, difLight);
-			glLightfv(GL_LIGHT0, GL_POSITION, posLight);
-			glEnable(GL_LIGHT0);
 
+			if (OPT_lightOption == 0)
+			{
+				float ambLight[4] = { 0.1, 0.1, 0.1, 1.0 };
+				float difLight[4] = { 0.8, 0.8, 0.8, 1.0 };
+				float posLight[4] = { cam.pos()[0], cam.pos()[1], cam.pos()[2], 1.0 };
+
+				glEnable (GL_LIGHT0);
+				glLightfv(GL_LIGHT0, GL_AMBIENT, ambLight);
+				glLightfv(GL_LIGHT0, GL_DIFFUSE, difLight);
+				glLightfv(GL_LIGHT0, GL_POSITION, posLight);
+			}
+			else if (OPT_lightOption == 1)
+			{
+
+				float amb = 0.016;
+				float mul = 0.4;
+				float ambLight[4] = { amb, amb, amb, 1.0 };
+				float difLight[4] = { mul, mul, mul, 1.0 };
+				float pl = 10.0;
+				float posLight0[4] = { +pl, 0, 0, 1 };
+				float posLight1[4] = { -pl, 0, 0, 1 };
+				float posLight2[4] = { 0, +pl, 0, 1 };
+				float posLight3[4] = { 0, -pl, 0, 1 };
+				float posLight4[4] = { 0, 0, +pl, 1 };
+				float posLight5[4] = { 0, 0, -pl, 1 };
+
+				auto l = GL_LIGHT0;
+
+				l = GL_LIGHT0;
+				glEnable (l);
+				glLightfv(l, GL_AMBIENT,  ambLight);
+				glLightfv(l, GL_DIFFUSE,  difLight);
+				glLightfv(l, GL_POSITION, posLight0);
+				l = GL_LIGHT1;
+				glEnable (l);
+				glLightfv(l, GL_AMBIENT,  ambLight);
+				glLightfv(l, GL_DIFFUSE,  difLight);
+				glLightfv(l, GL_POSITION, posLight1);
+				l = GL_LIGHT2;
+				glEnable (l);
+				glLightfv(l, GL_AMBIENT,  ambLight);
+				glLightfv(l, GL_DIFFUSE,  difLight);
+				glLightfv(l, GL_POSITION, posLight2);
+				l = GL_LIGHT3;
+				glEnable (l);
+				glLightfv(l, GL_AMBIENT,  ambLight);
+				glLightfv(l, GL_DIFFUSE,  difLight);
+				glLightfv(l, GL_POSITION, posLight3);
+				l = GL_LIGHT4;
+				glEnable (l);
+				glLightfv(l, GL_AMBIENT,  ambLight);
+				glLightfv(l, GL_DIFFUSE,  difLight);
+				glLightfv(l, GL_POSITION, posLight4);
+				l = GL_LIGHT5;
+				glEnable (l);
+				glLightfv(l, GL_AMBIENT,  ambLight);
+				glLightfv(l, GL_DIFFUSE,  difLight);
+				glLightfv(l, GL_POSITION, posLight5);
+			}
+			else if (OPT_lightOption == 2)
+			{
+				float amb = 0.05;
+				float mul = 0.5;
+				float ambLight[4] = { amb, amb, amb, 1.0 };
+				float difLight[4] = { mul, mul, mul, 1.0 };
+				float posLight[4] = { cam.pos()[0], cam.pos()[1], cam.pos()[2], 1.0 };
+
+				glEnable(GL_LIGHT0);
+				glLightfv(GL_LIGHT0, GL_AMBIENT, ambLight);
+				glLightfv(GL_LIGHT0, GL_DIFFUSE, difLight);
+				glLightfv(GL_LIGHT0, GL_POSITION, posLight);
+
+				float posLight2[4] = { -cam.pos()[0], -cam.pos()[1], -cam.pos()[2], 1.0 };
+				glEnable(GL_LIGHT1);
+				glLightfv(GL_LIGHT1, GL_AMBIENT, ambLight);
+				glLightfv(GL_LIGHT1, GL_DIFFUSE, difLight);
+				glLightfv(GL_LIGHT1, GL_POSITION, posLight2);
+
+			}
+
+			// 2-3. material
 			float red[4] = { 1,0,0,1 };
 			float red2[4] = { .7, .3, .7, 1.0 };
 			glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, red);
 			glMaterialfv(GL_BACK , GL_AMBIENT_AND_DIFFUSE, red);
+			/*if(OPT_lightOption == 0)*/
 
 
 			// 2-3. draw tri;
@@ -782,6 +867,25 @@ namespace rendering3D
 					}
 				}
 				glEnd();
+			}
+
+			// draw Cover
+			{
+				int circTess = 32;
+				double z = PI;
+
+				for (auto& c : Cover)
+				{
+					glBegin(GL_TRIANGLE_FAN);
+					glNormal3d(0, 0, 1);
+					glVertex3d(c.c.x(), c.c.y(), z); // center
+					for (int i = 0; i <= circTess; i++)
+					{
+						auto p = c.c + c.r * Point(cos(double(i) / circTess * PI2), sin(double(i) / circTess * PI2));
+						glVertex3d(p.x(), p.y(), z);
+					}
+					glEnd();
+				}
 			}
 
 			// 2-4. draw -pi/pi plane
@@ -830,8 +934,14 @@ namespace rendering3D
 				float g2[4] = { .7, .7, .2, 1.0 };
 				glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, g);
 				glMaterialfv(GL_BACK, GL_AMBIENT_AND_DIFFUSE, g);
+#if OPT_drawVor3DfromTop
+				for(int stripIdx = drawingSetVorIdx.size() - 1; stripIdx >=0; stripIdx--)
+				{
+					auto idx = drawingSetVorIdx[stripIdx];
+#else
 				for (auto idx : drawingSetVorIdx)
 				{
+#endif
 					//glBegin(GL_TRIANGLE_STRIP);
 					//for (size_t i = idx.first; i < idx.second; i++)
 					//{
@@ -881,49 +991,134 @@ namespace rendering3D
 						//	
 						//}
 
-						if (i % 2 == 0)
+
+						bool changeNormalDirOfDrawingSet = false;
+
+						if (changeNormalDirOfDrawingSet)
 						{
-							glNormal3dv(drawingSetVorNorm[i - 2].v3d());
-							glVertex3dv(drawingSetVorVert[i - 2].v3d());
-							glNormal3dv(drawingSetVorNorm[i - 1].v3d());
-							glVertex3dv(drawingSetVorVert[i - 1].v3d());
-							glNormal3dv(drawingSetVorNorm[i].v3d());
-							glVertex3dv(drawingSetVorVert[i].v3d());
+							if (i % 2 == 0)
+							{
+								bool flip = false;
+								xyt forward(*cam.forward(), *(cam.forward() + 1), *(cam.forward() + 2));
+								double dot;
+								{
+									dot = drawingSetVorNorm[i - 2].x() * forward.x()
+										+ drawingSetVorNorm[i - 2].y() * forward.y()
+										+ drawingSetVorNorm[i - 2].t() * forward.t();
+								}
+
+								if (dot < 0)
+								{
+									glNormal3dv(drawingSetVorNorm[i - 2].v3d());
+									glVertex3dv(drawingSetVorVert[i - 2].v3d());
+									glNormal3dv(drawingSetVorNorm[i - 1].v3d());
+									glVertex3dv(drawingSetVorVert[i - 1].v3d());
+									glNormal3dv(drawingSetVorNorm[i].v3d());
+									glVertex3dv(drawingSetVorVert[i].v3d());
+								}
+								else
+								{
+									xyt
+										temp0 = -drawingSetVorNorm[i - 2],
+										temp1 = -drawingSetVorNorm[i - 1],
+										temp2 = -drawingSetVorNorm[i - 0];
+
+									glNormal3dv(temp0.v3d());
+									glVertex3dv(drawingSetVorVert[i - 2].v3d());
+									glNormal3dv(temp1.v3d());
+									glVertex3dv(drawingSetVorVert[i - 1].v3d());
+									glNormal3dv(temp2.v3d());
+									glVertex3dv(drawingSetVorVert[i].v3d());
+								}
+							}
+							else
+							{
+								bool flip = false;
+								xyt forward(*cam.forward(), *(cam.forward() + 1), *(cam.forward() + 2));
+								double dot;
+								{
+									dot = drawingSetVorNorm[i - 2].x() * forward.x()
+										+ drawingSetVorNorm[i - 2].y() * forward.y()
+										+ drawingSetVorNorm[i - 2].t() * forward.t();
+								}
+
+								if (dot < 0)
+								{
+									glNormal3dv(drawingSetVorNorm[i - 1].v3d());
+									glVertex3dv(drawingSetVorVert[i - 1].v3d());
+									glNormal3dv(drawingSetVorNorm[i - 2].v3d());
+									glVertex3dv(drawingSetVorVert[i - 2].v3d());
+									glNormal3dv(drawingSetVorNorm[i].v3d());
+									glVertex3dv(drawingSetVorVert[i].v3d());
+								}
+								else
+								{
+									xyt
+										temp0 = -drawingSetVorNorm[i - 1],
+										temp1 = -drawingSetVorNorm[i - 2],
+										temp2 = -drawingSetVorNorm[i - 0];
+
+									glNormal3dv(temp0.v3d());
+									glVertex3dv(drawingSetVorVert[i - 1].v3d());
+									glNormal3dv(temp1.v3d());
+									glVertex3dv(drawingSetVorVert[i - 2].v3d());
+									glNormal3dv(temp2.v3d());
+									glVertex3dv(drawingSetVorVert[i].v3d());
+								}
+							}
 						}
 						else
 						{
-							glNormal3dv(drawingSetVorNorm[i - 1].v3d());
-							glVertex3dv(drawingSetVorVert[i - 1].v3d());
-							glNormal3dv(drawingSetVorNorm[i - 2].v3d());
-							glVertex3dv(drawingSetVorVert[i - 2].v3d());
-							glNormal3dv(drawingSetVorNorm[i].v3d());
-							glVertex3dv(drawingSetVorVert[i].v3d());
+							if (i % 2 == 0)
+							{
+								glNormal3dv(drawingSetVorNorm[i - 2].v3d());
+								glVertex3dv(drawingSetVorVert[i - 2].v3d());
+								glNormal3dv(drawingSetVorNorm[i - 1].v3d());
+								glVertex3dv(drawingSetVorVert[i - 1].v3d());
+								glNormal3dv(drawingSetVorNorm[i].v3d());
+								glVertex3dv(drawingSetVorVert[i].v3d());
+							}
+							else
+							{
+								glNormal3dv(drawingSetVorNorm[i - 1].v3d());
+								glVertex3dv(drawingSetVorVert[i - 1].v3d());
+								glNormal3dv(drawingSetVorNorm[i - 2].v3d());
+								glVertex3dv(drawingSetVorVert[i - 2].v3d());
+								glNormal3dv(drawingSetVorNorm[i].v3d());
+								glVertex3dv(drawingSetVorVert[i].v3d());
+							}
 						}
 
+					}
 
 						/*{
 							auto& norm = drawingSetVorNorm[i];
 							auto dot = cam.forward()
 						}*/
-					}
 					glEnd();
 				}
 			}
 			else if (planning::keyboardflag['m'])
 			{
 
-				float g[4] = { 0,1,0,1 };
+				float g[4] = { 0, 1, 0, 1 };
 				float g2[4] = { .7, .7, .2, 1.0 };
 				
 				glDisable(GL_LIGHTING);
-				glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+				if(OPT_wireframeVoronoi3D)
+					glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+				else
+					glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 				glColor4fv(g2);
 				
 				glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, g);
-				glMaterialfv(GL_BACK, GL_AMBIENT_AND_DIFFUSE, g);
+				glMaterialfv(GL_BACK,  GL_AMBIENT_AND_DIFFUSE, g);
 				for (int i = 0; i<drawingSetVorIdx.size(); i++)
 				{
-					if (drawingSetVorIdxFrom[i] == t2)
+					if (drawingSetVorIdxFrom[i] == t2
+						|| drawingSetVorIdxFrom[i] == t2 - 1
+						|| drawingSetVorIdxFrom[i] == t2 + 1
+						)
 					{
 						auto idx = drawingSetVorIdx[i];
 						
@@ -976,15 +1171,15 @@ namespace rendering3D
 								glNormal3dv(drawingSetVorNorm[i].v3d());
 								glVertex3dv(drawingSetVorVert[i].v3d());
 							}
+							glEnd();
 						}
-						glEnd();
 					}
 				}
+				
 				glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 				glEnable(GL_LIGHTING);
-
-
 			}
+
 			{
 				using namespace planning;
 				cout << "drawable tri size : " << drawableTriSize << endl;
@@ -997,9 +1192,15 @@ namespace rendering3D
 					drawableTriSize /= 1.1;
 			}
 
+			//// find cover of CSO3D
+			//if (true)
+			//{
+			//
+			//}
+
 
 			// 2-5. bifur
-			if (!planning::keyboardflag[','])
+			if (planning::keyboardflag[','])
 			{
 				glDisable(GL_LIGHTING);
 				glColor3f(1, 0, 1);
@@ -1503,7 +1704,10 @@ namespace rendering3D
 
 			if (_hard_case)
 			{
-				initializeRobotObstacles(2, 2);
+				int robotType = 1;
+				int obsType = 6;
+
+				initializeRobotObstacles(robotType, obsType);
 				int rIdx = 1;
 				int oIdx = 7;
 				robot = ms::Model_vca[rIdx];
@@ -1808,7 +2012,7 @@ namespace rendering3D
 
 			// 13. find drawingSet for vor-diag
 			double interSlicePointError = 1e-1; //squared val : interslice point connection further than sqrt(thisValue) is considered to be a false connection.
-			int nSamples = 10;
+			int nSamples = OPT_vor3Dsamples;
 			if(_13_vor3d)
 			{
 				// for each vCurve endpoint p0,p1 (do bifur point first, then danglingPt => to handle case where bifur pt disappears btw slice)
@@ -1884,18 +2088,18 @@ namespace rendering3D
 						int ns = nSamples;
 						std::vector<int> vs0, vs1; // array to hold sample idx
 						{
-							if (pair.size() < ns)
-								ns = pair.size();
-							if (edge.size() < ns)
-								ns = edge.size();
-
-							for (int i = 0; i < ns; i++)
-							{
-								vs0.push_back(i * edge.size() / ns);
-								vs1.push_back(i * pair.size() / ns);
-							}
+							//if (pair.size() < ns)
+							//	ns = pair.size();
+							//if (edge.size() < ns)
+							//	ns = edge.size();
+						
+							//for (int i = 0; i < ns; i++)
+							//{
+							//	vs0.push_back(i * edge.size() / ns);
+							//	vs1.push_back(i * pair.size() / ns);
+							//}
 						}
-
+						
 						// 13-3-3 find out z coord
 						double z0, z1;
 						{
@@ -1915,19 +2119,19 @@ namespace rendering3D
 								z1 = z1 * PI / 180;
 							}
 						}
-
+						
 						// 13-3-4. find drawing set
 						{
 							vector<VoronoiEdge> EDGE;
 							EDGE.insert(EDGE.end(), edge.begin(), edge.end());
-
+						
 							int start = drawingSetVorVert.size();
 							tessellateVoronoiCurvePair(nSamples, EDGE, pair, z0, z1, drawingSetVorVert, drawingSetVorNorm);
 							int end = drawingSetVorVert.size();
-							drawingSetVorIdx.push_back(std::pair<int,int>(start,end));
+							drawingSetVorIdx.push_back(std::pair<int, int>(start, end));
 							drawingSetVorIdxFrom.push_back(i);
 						}
-
+						
 						//// 13-3-4 build drawing set
 						//std::pair<int, int> drawIdx;
 						//drawIdx.first = drawingSetVorVert.size();
@@ -1971,16 +2175,40 @@ namespace rendering3D
 						//drawIdx.second = drawingSetVorVert.size();
 						//drawingSetVorIdx.push_back(drawIdx);
 						//drawingSetVorIdxFrom.push_back(i);
-
+						
 						// 13-3-5 Take care of pts in slice iNext, which was not paired to slice i's some point
 						// HARD TODO
 					}
-					
+
 					// debug out;
 					std::cout << "Maximum v_edge diff at slice " << i << " : " << max2 << std::endl;
 				}
 			}
 
+			// 14. build cover
+			{
+				ms::minkowskisum(ms::numofframe/2, 1);
+				planning::VR_IN vrin;
+				planning::_Convert_MsOut_To_VrIn(ms::Model_Result, ms::ModelInfo_Boundary, vrin);
+
+				vector<CircularArc> temp;
+				int cnt = 0;
+				for (auto& a : vrin.arcs)
+				{
+					if (vrin.color[cnt] == 1.0)
+						break;
+
+					temp.push_back(planning::flipArc(vrin.arcs[cnt]));
+
+					cnt++;
+				}
+
+				findInteriorDisks2(temp, 0.01, Cover);
+				cout << "~~~~Interior disk found from " << temp.size() << " to " << Cover.size() << endl;
+			}
+
+			// 15. draw cover
+			
 
 			// 99. register Func and start loop
 			glutReshapeFunc(reshapeFunc);
@@ -2031,8 +2259,8 @@ namespace rendering3D
 				double t1 = sz1 * i * rcp;
 
 				// 2-2. decompose to : integer + [0,1)
-				int idx0 = t0; // floor
-				int idx1 = t1; // fllor
+				int idx0 = floor(t0); // floor
+				int idx1 = floor(t1); // floor
 
 				t0 = t0 - idx0;
 				t1 = t1 - idx1;
@@ -2482,677 +2710,680 @@ namespace sceneEditor
 	}
 }
 
-namespace modelEditor
-{
-	int wd, ht;
-
-	// mouse
-	Point mousePosition;
-	bool isMousePositionAtEnd = false;
-	bool isMouseAlignedToPrecedingArcs = false;
-	vector<Point> mouseAlignedPoints;
-	double mxOri, myOri; // current mouse pos in world-coord (original, not modified)
-	int mouseState = 0;
-		// 0 : currently picking arc start pt // only happens at start of program, as arcs are g0 cont
-		// 1 : currently picking arc end   pt
-		// 2 : currently picking arc rad
-	Point x0, x1;
-
-	double samplingRate = 0.1;
-
-	// resulting
-	vector<CircularArc> model_arcs;
-	vector<Circle>		model_disk;
-
-	vector<vector<CircularArc>> models_arcs;
-	vector<vector<Circle>>		models_disk;
-
-	// manual
-	string manual =
-		R"del(~~~~~~~~~~~~~~~~~ Manual: ~~~~~~~~~~~~~~~~~
-	Make CCW loop and find interior disks
-
-	Mouse Left: draw
-	Mouse Right: undo
-
-	// Keyboard Left (frequently used)
-	r: Refine:	refine model g1
-	d: Disk:	calc disk
-	a: Axis:	draw axis grid
-	v: Voronoi:	vor test
-	q: Align:	p2 is picked axis aligned
-	w: Align:	p2 is in a same line with some point in vec
-
-	// Keyboard Right (less frequently used)
-	o: save loop to loop-sets
-	[: loopIdx-- (todo)
-	]: loopIdx++ (todo)
-	-: file: save loop-sets to   file
-	=: file: load loop-sets from file(to do)
-	
-	// Numbers (Change visibility)
-	1: show disk calculated
-	2: print mouse positions
-)del";
-
-	/*
-	hyper params: (in this code section)
-		guessArc::_h_line_rad
-
-	hyper params: (outside)
-		things related to regfine::g1
-	*/
-
-
-	/*
-	Def: from glo var x0,x1 and mousPosition, guess arc
-
-	Warning:
-		this uses global variables.
-	*/
-	CircularArc guessArc()
-	{
-		double _h_line_rad = 10.0;
-		auto& mp = mousePosition;
-
-		// 1. check whethre line representing arc should be sent
-		bool isLine = false;
-		{
-			// i. when mp is too close
-			if ((mp - x0).length2() < 1e-8 || (mp - x1).length2() < 1e-8)
-				isLine = true;
-			else // if no else -> mp-x0 could be 0 -> normalize -> nan -> propagtes strangely with comparator
-			{
-				// ii. check whether ordering (x0-mp-x1) holds in arc
-				auto tan = (x1 - x0).normalize();
-				auto d0 = x0 * tan;
-				auto d1 = x1 * tan;
-				auto d2 = mp * tan;
-
-				bool f0 = d0 < d2;
-				bool f1 = d1 < d2;
-				if (!(f0 ^ f1))
-					isLine = true;
-				else
-				{
-				// iii. when dot product of (mp-x0), (mp-x1) is too big
-				auto tan0 = (mp - x0).normalize();
-				auto tan1 = (x1 - mp).normalize();
-				if (abs(tan0 * tan1) > 1 - 1e-2)
-					isLine = true;
-				}
-			}
-
-		}
-
-		// 
-		if (isLine)
-		{
-			return cd::constructArc(x0, x1, _h_line_rad, true, true);
-		}
-		else
-		{
-			auto l0 = ms::bisector(x0, mp);
-			auto l1 = ms::bisector(x1, mp);
-			Point cc(l0, l1);
-			bool ccw;
-			{
-				// find ccw
-				// travel from t0 in ccw
-				//	-> if tt is met first than t1 <==> ccw
-
-				// find param
-				auto n0 = x0 - cc;
-				auto n1 = x1 - cc;
-				auto nt = mp - cc;
-				auto t0 = atan2(n0.y(), n0.x());
-				auto t1 = atan2(n1.y(), n1.x());
-				auto tt = atan2(nt.y(), nt.x());
-
-				// confine it to [t0, t0+2pi)
-				if (t1 < t0)
-					t1 += PI2;
-				if (tt < t0)
-					tt += PI2;
-				
-				// check whether traveling from t0 to t1 confronts tt
-				if (tt < t1)
-					ccw = true;
-				else
-					ccw = false;
-			}
-
-			return cd::constructArc(cc, x0, x1, ccw );
-		}
-
-	}
-
-	void motionFunc(int x, int y)
-	{
-		// 1. find mousePosition
-		mxOri = float(x - wd / 2) / (wd / 2);
-		myOri = float(-y + ht / 2) / (ht / 2);
-		mousePosition.x() = mxOri;
-		mousePosition.y() = myOri;
-
-		isMousePositionAtEnd = false;
-		isMouseAlignedToPrecedingArcs = false;
-		mouseAlignedPoints.clear();
-
-		// 2. if certain button is pushed, align position
-		//cout << COUT(Key('q')) << endl;
-		if (Key('q'))
-		{
-			// if choosing second point of arc
-			if (mouseState == 1)
-			{
-				// i. align x? y?
-				bool alignXdir = false;
-				auto difVec = mousePosition - x0;
-				if (abs(difVec.x()) > abs(difVec.y()))
-					alignXdir = true;
-
-				// ii. set
-				if (alignXdir)
-					mousePosition.y() = x0.y();
-				else
-					mousePosition.x() = x0.x();
-			}
-		}
-
-		if (Key('w') && model_arcs.size() > 0 && mouseState == 1)
-		{
-			//auto& p = model_arcs.front().x0(); 
-			//if (abs(mousePosition.x() - p.x()) < 5e-3)
-			//{
-			//	mousePosition.x() = p.x();
-			//	isMouseAlignedToPrecedingArcs = true;
-			//}
-			//if (abs(mousePosition.y() - p.y()) < 5e-3)
-			//{
-			//	mousePosition.y() = p.y();
-			//	isMouseAlignedToPrecedingArcs = true;
-			//}
-
-			for (auto& arc : model_arcs)
-			{
-				auto& p = arc.x0();
-				if (abs(mousePosition.x() - p.x()) < 5e-3)
-				{
-					mousePosition.x() = p.x();
-					isMouseAlignedToPrecedingArcs = true;
-					mouseAlignedPoints.push_back(p);
-				}
-				if (abs(mousePosition.y() - p.y()) < 5e-3)
-				{
-					mousePosition.y() = p.y();
-					isMouseAlignedToPrecedingArcs = true;
-					mouseAlignedPoints.push_back(p);
-				}
-			}
-
-		}
-
-
-		// if close to start of loop, make it so.
-		if (model_arcs.size() > 0)
-		{
-			if ((mousePosition - model_arcs.front().x0()).length2() < 1e-4)
-			{
-				mousePosition = model_arcs.front().x0();
-				isMousePositionAtEnd = true;
-			}
-		}
-
-	};
-	void reshapeFunc(GLint w, GLint h)
-	{
-		// later
-		if (w > h)
-		{
-			wd = h;
-			ht = h;
-		}
-		else
-		{
-			wd = w;
-			ht = w;
-		}
-	};
-	void idleFunc()
-	{
-		// later
-
-		glutPostRedisplay();
-	};
-	void mouseFunc(int button, int action, int x, int y)
-	{
-		if(action == GLUT_UP)
-		switch (button)
-		{
-		case GLUT_LEFT_BUTTON:
-		{
-			switch(mouseState)
-			{
-			case 0: //initial state : where no arcs are in model_arcs
-				// save x0
-				mouseState = 1;
-				x0 = mousePosition;
-				break;
-			case 1:
-				// save x1
-				mouseState = 2;
-				x1 = mousePosition;
-				break;
-			case 2:
-				// from x0, x1, and current 
-				mouseState = 1;
-
-				//find arc
-				model_arcs.push_back(guessArc());
-
-				// next arc's starting point = this arc's end
-				x0 = x1; 
-				break;
-			}
-		}
-			break;
-
-		case GLUT_RIGHT_BUTTON:
-		{
-			switch (mouseState)
-			{
-			case 0:
-				if (models_arcs.size() > 0)
-				{
-					model_arcs = models_arcs.back();
-					model_disk = models_disk.back();
-
-					models_arcs.pop_back();
-					models_disk.pop_back();
-
-					mouseState = 1;
-					x0 = model_arcs.back().x1();
-
-				}
-				break;
-			case 1:
-				if (model_arcs.size() > 0)
-				{
-					x0 = model_arcs.back().x0();
-					model_arcs.pop_back();
-					mouseState = 1;
-				}
-				else
-				{
-					mouseState = 0;
-				}
-				break;
-			case 2:
-				mouseState = 1;
-				break;
-			}
-		}
-			break;
-		}
-	};
-	void keyboardFunc(unsigned char a, int b, int c)
-	{
-		//cout << "keyboardFunc:" << a << endl;
-		planning::keyboardflag[a] = !planning::keyboardflag[a];
-		// pressing a once will flip keybaord flag btw 0 and 1
-		// pressing it for a long time will make it oscillate 010101
-		
-	};
-	void keyboardUpFunc(unsigned char a, int b, int c)
-	{
-
-	}
-	void displayFunc()
-	{
-		// 0.
-		glClearColor(1.0, 1.0, 1.0, 1.0);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		glViewport(0, 0, wd, ht);
-
-		if(Key('2'))
-			cout << "current mous Pos : " << mousePosition << endl;
-
-		// 1. show added
-		{
-			glColor3f(0, 0, 0);
-			for (auto& a : model_arcs)
-				a.draw2();
-
-			glColor3f(0, 0, 0);
-			for (auto& l : models_arcs)
-				for (auto& a : l)
-					a.draw2();
-		}
-
-		// 2. show current arc
-		switch (mouseState)
-		{
-		case 0:
-			break;
-		case 1:
-			glColor3f(0.8, 0.8, 0.8);
-			glBegin(GL_LINES);
-			glVertex2dv(mousePosition.P);
-			glVertex2dv(x0.P);
-			glEnd();
-			break;
-		case 2:
-			glColor3f(0.8, 0.8, 0.8);
-			auto arc = guessArc();
-			arc.draw2();
-			break;
-		}
-
-		// 3. show mousPosition (& align pts)
-		{
-			if (isMousePositionAtEnd)
-				glColor3f(0, 1, 0);
-			else if (isMouseAlignedToPrecedingArcs)
-				glColor3f(0, 1, 1);
-			else
-				glColor3f(0, 0, 1);
-			
-			Circle c;
-			c.c = mousePosition;
-			c.r = 0.01;
-
-			c.draw();
-
-			{
-				glBegin(GL_LINES);
-				for (auto& p : mouseAlignedPoints)
-				{
-					glVertex2dv(mousePosition.P);
-					glVertex2dv(p.P);
-				}
-				glEnd();
-			}
-		}
-
-		// 4. find disks
-		if (Key3('d'))
-		{
-			if (model_disk.size() > 0)
-				model_disk.clear();
-
-			if (model_arcs.front().x0() == model_arcs.back().x1())
-			{
-				findInteriorDisks2(model_arcs, samplingRate, model_disk);
-				cout << "disks: disks found " << endl;
-			}
-			else
-			{
-				cout << "disks: loop not formed " << endl;
-			}
-		}
-
-		// 5. draw disks
-		if (!Key('1'))
-		{
-			glColor3f(0.7, .7, .7);
-			for (auto& c : model_disk)
-				c.draw();
-
-			for (auto& b : models_disk)
-				for (auto& c : b)
-					c.draw();
-		}
-
-		// 6. refine
-		if (Key3('r'))
-		{
-			if (model_arcs.front().x0() == model_arcs.back().x1())
-			{
-				vector<CircularArc> temp;
-				Refiner rf;
-				rf.g1(model_arcs, temp);
-
-				cout << "RefineMent: from " << model_arcs.size() << " to " << temp.size() << endl;
-
-				//dbg_out
-				{
-				for (auto& a : model_arcs)
-					cout << a << endl;
-				for (auto& a : temp)
-					cout << a << endl;
-				}
-
-				model_arcs = temp;
-			}
-		}
-
-		// 7. axis
-		if (Key('a'))
-		{
-			double z = 1.0;
-
-			glColor3f(.7, .7, .7);
-			
-			glLineWidth(2.0);
-			glBegin(GL_LINES);
-			glVertex3d(-1.0, 0.0, z);
-			glVertex3d(+1.0, 0.0, z);
-			glVertex3d(0.0, -1.0, z);
-			glVertex3d(0.0, +1.0, z);
-			glEnd();
-
-
-			glLineWidth(0.5);
-			glBegin(GL_LINES);
-			for (int i = 1; i < 20; i++)
-			{
-				if (i == 10) continue;
-				
-				if (i == 5 || i == 15)
-					glColor3f(.8, .8, .8);
-				else
-					glColor3f(.9, .9, .9);
-
-				double t = double(i - 10) * 0.1;
-
-				glVertex3d(-1.0, t   , z);
-				glVertex3d(+1.0, t   , z);
-				glVertex3d(t   , -1.0, z);
-				glVertex3d(t   , +1.0, z);
-			}
-			glEnd();
-
-			glLineWidth(1.0);
-		}
-
-		// 8. flush current loop to models
-		if (Key3('o'))
-		{
-			// if(form loop)
-			if (model_arcs.size() > 0 && model_arcs.front().x0() == model_arcs.back().x1())
-			{
-
-				vector<CircularArc> refined;
-				vector<Circle> interiorDisks;
-
-				// i. refine
-				Refiner rf;
-				rf.g1(model_arcs, refined);
-
-				// ii. find disk
-				findInteriorDisks2(refined, samplingRate, interiorDisks);
-
-				// iii. push
-				models_arcs.push_back(refined);
-				models_disk.push_back(interiorDisks);
-
-				// iv. flush
-				model_arcs.clear();
-				model_disk.clear();
-				mouseState = 0;
-
-				cout << "recording loop with size = " << refined.size() <<", disk = " << interiorDisks.size() << endl;
-			}
-		}
-
-		// 9. save arc/disk to file
-		if(Key3('-'))
-		{
-			int totalArc = 0, totalCirc = 0;
-
-			for (auto& v : models_arcs)
-				totalArc += v.size();
-			for (auto& v : models_disk)
-				totalCirc += v.size();
-
-			cout << "Writing (arc, disk) = (" << totalArc << ", " << totalCirc << ") to file" << endl;
-
-			// write arc
-			{
-				ofstream arcout("modelEditor/arc.txt");
-				arcout << std::setprecision(20);
-				
-				arcout << totalArc << endl;
-				for(auto& v: models_arcs)
-					for (auto& a : v)
-					{
-						auto par = a.param();
-
-						arcout << "d " << a.cx() << " " << a.cy() << " " << a.cr() << " "
-							<< par.first * 180.0 / PI << " " << par.second * 180.0 / PI << " " << a.ccw << endl;
-					}
-
-			}
-
-			// write disk
-			{
-				ofstream circout("modelEditor/circ.txt");
-				circout << std::setprecision(20);
-
-				circout << totalCirc << endl;
-				for (auto& v : models_disk)
-					for (auto& c : v)
-					{
-						circout << c.c.x() << " " << c.c.y() << " " << c.r << endl;
-					}
-			}
-
-		}
-
-		// 10. test vor
-		if (Key('v') && models_arcs.size() > 0)
-		{
-			planning::VR_IN vrin;
-			
-			// i. vrin models
-			int offset = 0;
-			for (auto& v : models_arcs)
-			{
-				// models_arcs is ccw => convert cw
-				for (int i = 0; i < v.size(); i++)
-				{
-					int in = i + 1;
-					if (in == v.size())
-						in = 0;
-
-					vrin.arcs.push_back(planning::flipArc(v[i]));
-					vrin.left.push_back(in + offset);
-					vrin.color.push_back(0.0);
-				}
-
-				offset += v.size();
-			}
-
-			// ii. vrin boundary
-			{
-				Point p0( 1, -1);
-				Point p1( 1,  1);
-				Point p2(-1,  1);
-				Point p3(-1, -1);
-
-				auto a0 = cd::constructArc(p0, p1, 10, true, true);
-				auto a1 = cd::constructArc(p1, p2, 10, true, true);
-				auto a2 = cd::constructArc(p2, p3, 10, true, true);
-				auto a3 = cd::constructArc(p3, p0, 10, true, true);
-
-				vrin.arcs.push_back(a0);
-				vrin.arcs.push_back(a1);
-				vrin.arcs.push_back(a2);
-				vrin.arcs.push_back(a3);
-
-				vrin.left.push_back(offset + 3);
-				vrin.left.push_back(offset + 0);
-				vrin.left.push_back(offset + 1);
-				vrin.left.push_back(offset + 2);
-
-				vrin.color.push_back(1.0);
-				vrin.color.push_back(1.0);
-				vrin.color.push_back(1.0);
-				vrin.color.push_back(1.0);
-			}
-
-			// iii. do vor
-			voronoiCalculator vc;
-			vector<deque<VoronoiEdge>> res;
-
-			vc.setInput(vrin.arcs, vrin.left, vrin.color);
-			vc.setOutput(res);
-			vc.calculate();
-
-			// iv. draw
-			glColor3f(1, 0, 1);
-			glBegin(GL_LINES);
-			for(auto & deq: res)
-				for (auto& ve : deq)
-				{
-					glVertex2dv(ve.v0.P);
-					glVertex2dv(ve.v1.P);
-				}
-			glEnd();
-
-
-		}
-
-		// 99.
-		for (int i = 0; i < 256; i++)
-		{
-			//Key2(i) = Key(i);
-			planning::keyboardflag_last[i] = planning::keyboardflag[i];
-		}
-
-		glutSwapBuffers();
-	}
-
-
-	int main(int argc, char* argv[])
-	{
-		// 0. print manual
-		{
-			cout << manual << endl;
-		}
-
-		// 1. basic stuff
-		wd = 800;
-		ht = 800;
-		glutInit(&argc, argv);
-		glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH);
-		glutInitWindowSize(wd, ht);
-		glutCreateWindow("SceneEditor");
-		//glEnable(GL_SCISSOR_TEST);
-
-		// 99. register Func and start loop
-		glutReshapeFunc(reshapeFunc);
-		glutDisplayFunc(displayFunc);
-		glutMouseFunc(mouseFunc);
-		glutKeyboardFunc(keyboardFunc);
-		glutKeyboardUpFunc(keyboardUpFunc);
-		glutIdleFunc(idleFunc);
-		glutMotionFunc(motionFunc);
-		glutPassiveMotionFunc(motionFunc);
-
-		glutMainLoop();
-		
-		return 0;
-	}
-}
+//namespace modelEditor
+//{
+//	int wd, ht;
+//
+//	// mouse
+//	Point mousePosition;
+//	bool isMousePositionAtEnd = false;
+//	bool isMouseAlignedToPrecedingArcs = false;
+//	vector<Point> mouseAlignedPoints;
+//	double mxOri, myOri; // current mouse pos in world-coord (original, not modified)
+//	int mouseState = 0;
+//		// 0 : currently picking arc start pt // only happens at start of program, as arcs are g0 cont
+//		// 1 : currently picking arc end   pt
+//		// 2 : currently picking arc rad
+//	Point x0, x1;
+//
+//	double samplingRate = 0.1;
+//
+//	// resulting
+//	vector<CircularArc> model_arcs;
+//	vector<Circle>		model_disk;
+//
+//	vector<vector<CircularArc>> models_arcs;
+//	vector<vector<Circle>>		models_disk;
+//
+//	// manual
+//	string manual =
+//		R"del(~~~~~~~~~~~~~~~~~ Manual: ~~~~~~~~~~~~~~~~~
+//	Make CCW loop and find interior disks
+//
+//	Mouse Left: draw
+//	Mouse Right: undo
+//
+//	// Keyboard Left (frequently used)
+//	r: Refine:	refine model g1
+//	d: Disk:	calc disk
+//	a: Axis:	draw axis grid
+//	v: Voronoi:	vor test
+//	q: Align:	p2 is picked axis aligned
+//	w: Align:	p2 is in a same line with some point in vec
+//
+//	// Keyboard Right (less frequently used)
+//	o: save loop to loop-sets
+//	[: loopIdx-- (todo)
+//	]: loopIdx++ (todo)
+//	-: file: save loop-sets to   file
+//	=: file: load loop-sets from file(to do)
+//	
+//	// Numbers (Change visibility)
+//	1: show disk calculated
+//	2: print mouse positions
+//)del";
+//
+//	/*
+//	hyper params: (in this code section)
+//		guessArc::_h_line_rad
+//
+//	hyper params: (outside)
+//		things related to regfine::g1
+//	*/
+//
+//
+//	/*
+//	Def: from glo var x0,x1 and mousPosition, guess arc
+//
+//	Warning:
+//		this uses global variables.
+//	*/
+//	CircularArc guessArc()
+//	{
+//		double _h_line_rad = 10.0;
+//		auto& mp = mousePosition;
+//
+//		// 1. check whethre line representing arc should be sent
+//		bool isLine = false;
+//		{
+//			// i. when mp is too close
+//			if ((mp - x0).length2() < 1e-8 || (mp - x1).length2() < 1e-8)
+//				isLine = true;
+//			else // if no else -> mp-x0 could be 0 -> normalize -> nan -> propagtes strangely with comparator
+//			{
+//				// ii. check whether ordering (x0-mp-x1) holds in arc
+//				auto tan = (x1 - x0).normalize();
+//				auto d0 = x0 * tan;
+//				auto d1 = x1 * tan;
+//				auto d2 = mp * tan;
+//
+//				bool f0 = d0 < d2;
+//				bool f1 = d1 < d2;
+//				if (!(f0 ^ f1))
+//					isLine = true;
+//				else
+//				{
+//				// iii. when dot product of (mp-x0), (mp-x1) is too big
+//				auto tan0 = (mp - x0).normalize();
+//				auto tan1 = (x1 - mp).normalize();
+//				if (abs(tan0 * tan1) > 1 - 1e-2)
+//					isLine = true;
+//				}
+//			}
+//
+//		}
+//
+//		// 
+//		if (isLine)
+//		{
+//			return cd::constructArc(x0, x1, _h_line_rad, true, true);
+//		}
+//		else
+//		{
+//			auto l0 = ms::bisector(x0, mp);
+//			auto l1 = ms::bisector(x1, mp);
+//			Point cc(l0, l1);
+//			bool ccw;
+//			{
+//				// find ccw
+//				// travel from t0 in ccw
+//				//	-> if tt is met first than t1 <==> ccw
+//
+//				// find param
+//				auto n0 = x0 - cc;
+//				auto n1 = x1 - cc;
+//				auto nt = mp - cc;
+//				auto t0 = atan2(n0.y(), n0.x());
+//				auto t1 = atan2(n1.y(), n1.x());
+//				auto tt = atan2(nt.y(), nt.x());
+//
+//				// confine it to [t0, t0+2pi)
+//				if (t1 < t0)
+//					t1 += PI2;
+//				if (tt < t0)
+//					tt += PI2;
+//				
+//				// check whether traveling from t0 to t1 confronts tt
+//				if (tt < t1)
+//					ccw = true;
+//				else
+//					ccw = false;
+//			}
+//
+//			return cd::constructArc(cc, x0, x1, ccw );
+//		}
+//
+//	}
+//
+//	void motionFunc(int x, int y)
+//	{
+//		// 1. find mousePosition
+//		mxOri = float(x - wd / 2) / (wd / 2);
+//		myOri = float(-y + ht / 2) / (ht / 2);
+//		mousePosition.x() = mxOri;
+//		mousePosition.y() = myOri;
+//
+//		isMousePositionAtEnd = false;
+//		isMouseAlignedToPrecedingArcs = false;
+//		mouseAlignedPoints.clear();
+//
+//		// 2. if certain button is pushed, align position
+//		//cout << COUT(Key('q')) << endl;
+//		if (Key('q'))
+//		{
+//			// if choosing second point of arc
+//			if (mouseState == 1)
+//			{
+//				// i. align x? y?
+//				bool alignXdir = false;
+//				auto difVec = mousePosition - x0;
+//				if (abs(difVec.x()) > abs(difVec.y()))
+//					alignXdir = true;
+//
+//				// ii. set
+//				if (alignXdir)
+//					mousePosition.y() = x0.y();
+//				else
+//					mousePosition.x() = x0.x();
+//			}
+//		}
+//
+//		if (Key('w') && model_arcs.size() > 0 && mouseState == 1)
+//		{
+//			//auto& p = model_arcs.front().x0(); 
+//			//if (abs(mousePosition.x() - p.x()) < 5e-3)
+//			//{
+//			//	mousePosition.x() = p.x();
+//			//	isMouseAlignedToPrecedingArcs = true;
+//			//}
+//			//if (abs(mousePosition.y() - p.y()) < 5e-3)
+//			//{
+//			//	mousePosition.y() = p.y();
+//			//	isMouseAlignedToPrecedingArcs = true;
+//			//}
+//
+//			for (auto& arc : model_arcs)
+//			{
+//				auto& p = arc.x0();
+//				if (abs(mousePosition.x() - p.x()) < 5e-3)
+//				{
+//					mousePosition.x() = p.x();
+//					isMouseAlignedToPrecedingArcs = true;
+//					mouseAlignedPoints.push_back(p);
+//				}
+//				if (abs(mousePosition.y() - p.y()) < 5e-3)
+//				{
+//					mousePosition.y() = p.y();
+//					isMouseAlignedToPrecedingArcs = true;
+//					mouseAlignedPoints.push_back(p);
+//				}
+//			}
+//
+//		}
+//
+//
+//		// if close to start of loop, make it so.
+//		if (model_arcs.size() > 0)
+//		{
+//			if ((mousePosition - model_arcs.front().x0()).length2() < 1e-4)
+//			{
+//				mousePosition = model_arcs.front().x0();
+//				isMousePositionAtEnd = true;
+//			}
+//		}
+//
+//	};
+//	void reshapeFunc(GLint w, GLint h)
+//	{
+//		// later
+//		if (w > h)
+//		{
+//			wd = h;
+//			ht = h;
+//		}
+//		else
+//		{
+//			wd = w;
+//			ht = w;
+//		}
+//	};
+//	void idleFunc()
+//	{
+//		// later
+//
+//		glutPostRedisplay();
+//	};
+//	void mouseFunc(int button, int action, int x, int y)
+//	{
+//		if(action == GLUT_UP)
+//		switch (button)
+//		{
+//		case GLUT_LEFT_BUTTON:
+//		{
+//			switch(mouseState)
+//			{
+//			case 0: //initial state : where no arcs are in model_arcs
+//				// save x0
+//				mouseState = 1;
+//				x0 = mousePosition;
+//				break;
+//			case 1:
+//				// save x1
+//				mouseState = 2;
+//				x1 = mousePosition;
+//				break;
+//			case 2:
+//				// from x0, x1, and current 
+//				mouseState = 1;
+//
+//				//find arc
+//				model_arcs.push_back(guessArc());
+//
+//				// next arc's starting point = this arc's end
+//				x0 = x1; 
+//				break;
+//			}
+//		}
+//			break;
+//
+//		case GLUT_RIGHT_BUTTON:
+//		{
+//			switch (mouseState)
+//			{
+//			case 0:
+//				if (models_arcs.size() > 0)
+//				{
+//					model_arcs = models_arcs.back();
+//					model_disk = models_disk.back();
+//
+//					models_arcs.pop_back();
+//					models_disk.pop_back();
+//
+//					mouseState = 1;
+//					x0 = model_arcs.back().x1();
+//
+//				}
+//				break;
+//			case 1:
+//				if (model_arcs.size() > 0)
+//				{
+//					x0 = model_arcs.back().x0();
+//					model_arcs.pop_back();
+//					mouseState = 1;
+//				}
+//				else
+//				{
+//					mouseState = 0;
+//				}
+//				break;
+//			case 2:
+//				mouseState = 1;
+//				break;
+//			}
+//		}
+//			break;
+//		}
+//	};
+//	void keyboardFunc(unsigned char a, int b, int c)
+//	{
+//		//cout << "keyboardFunc:" << a << endl;
+//		planning::keyboardflag[a] = !planning::keyboardflag[a];
+//		// pressing a once will flip keybaord flag btw 0 and 1
+//		// pressing it for a long time will make it oscillate 010101
+//		
+//	};
+//	void keyboardUpFunc(unsigned char a, int b, int c)
+//	{
+//
+//	}
+//	void displayFunc()
+//	{
+//		// 0.
+//		glClearColor(1.0, 1.0, 1.0, 1.0);
+//		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+//		glViewport(0, 0, wd, ht);
+//
+//		if(Key('2'))
+//			cout << "current mous Pos : " << mousePosition << endl;
+//
+//		// 1. show added
+//		{
+//			glColor3f(0, 0, 0);
+//			for (auto& a : model_arcs)
+//				a.draw2();
+//
+//			glColor3f(0, 0, 0);
+//			for (auto& l : models_arcs)
+//				for (auto& a : l)
+//					a.draw2();
+//		}
+//
+//		// 2. show current arc
+//		switch (mouseState)
+//		{
+//		case 0:
+//			break;
+//		case 1:
+//			glColor3f(0.8, 0.8, 0.8);
+//			glBegin(GL_LINES);
+//			glVertex2dv(mousePosition.P);
+//			glVertex2dv(x0.P);
+//			glEnd();
+//			break;
+//		case 2:
+//			glColor3f(0.8, 0.8, 0.8);
+//			auto arc = guessArc();
+//			arc.draw2();
+//			break;
+//		}
+//
+//		// 3. show mousPosition (& align pts)
+//		{
+//			if (isMousePositionAtEnd)
+//				glColor3f(0, 1, 0);
+//			else if (isMouseAlignedToPrecedingArcs)
+//				glColor3f(0, 1, 1);
+//			else
+//				glColor3f(0, 0, 1);
+//			
+//			Circle c;
+//			c.c = mousePosition;
+//			c.r = 0.01;
+//
+//			c.draw();
+//
+//			{
+//				glBegin(GL_LINES);
+//				for (auto& p : mouseAlignedPoints)
+//				{
+//					glVertex2dv(mousePosition.P);
+//					glVertex2dv(p.P);
+//				}
+//				glEnd();
+//			}
+//		}
+//
+//		// 4. find disks
+//		if (Key3('d'))
+//		{
+//			if (model_disk.size() > 0)
+//				model_disk.clear();
+//
+//			if (model_arcs.front().x0() == model_arcs.back().x1())
+//			{
+//				findInteriorDisks2(model_arcs, samplingRate, model_disk);
+//				cout << "disks: disks found " << endl;
+//			}
+//			else
+//			{
+//				cout << "disks: loop not formed " << endl;
+//			}
+//		}
+//
+//		// 5. draw disks
+//		if (!Key('1'))
+//		{
+//			glColor3f(0.7, .7, .7);
+//			for (auto& c : model_disk)
+//				c.draw();
+//
+//			for (auto& b : models_disk)
+//				for (auto& c : b)
+//					c.draw();
+//		}
+//
+//		// 6. refine
+//		if (Key3('r'))
+//		{
+//			if (model_arcs.front().x0() == model_arcs.back().x1())
+//			{
+//				vector<CircularArc> temp;
+//				Refiner rf;
+//				rf.g1(model_arcs, temp);
+//
+//				cout << "RefineMent: from " << model_arcs.size() << " to " << temp.size() << endl;
+//
+//				//dbg_out
+//				{
+//				for (auto& a : model_arcs)
+//					cout << a << endl;
+//				for (auto& a : temp)
+//					cout << a << endl;
+//				}
+//
+//				model_arcs = temp;
+//			}
+//		}
+//
+//		// 7. axis
+//		if (Key('a'))
+//		{
+//			double z = 1.0;
+//
+//			glColor3f(.7, .7, .7);
+//			
+//			glLineWidth(2.0);
+//			glBegin(GL_LINES);
+//			glVertex3d(-1.0, 0.0, z);
+//			glVertex3d(+1.0, 0.0, z);
+//			glVertex3d(0.0, -1.0, z);
+//			glVertex3d(0.0, +1.0, z);
+//			glEnd();
+//
+//
+//			glLineWidth(0.5);
+//			glBegin(GL_LINES);
+//			for (int i = 1; i < 20; i++)
+//			{
+//				if (i == 10) continue;
+//				
+//				if (i == 5 || i == 15)
+//					glColor3f(.8, .8, .8);
+//				else
+//					glColor3f(.9, .9, .9);
+//
+//				double t = double(i - 10) * 0.1;
+//
+//				glVertex3d(-1.0, t   , z);
+//				glVertex3d(+1.0, t   , z);
+//				glVertex3d(t   , -1.0, z);
+//				glVertex3d(t   , +1.0, z);
+//			}
+//			glEnd();
+//
+//			glLineWidth(1.0);
+//		}
+//
+//		// 8. test vor
+//		if (Key('v') && models_arcs.size() > 0)
+//		{
+//			planning::VR_IN vrin;
+//
+//			// i. vrin models
+//			int offset = 0;
+//			for (auto& v : models_arcs)
+//			{
+//				// models_arcs is ccw => convert cw
+//				for (int i = 0; i < v.size(); i++)
+//				{
+//					int in = i + 1;
+//					if (in == v.size())
+//						in = 0;
+//
+//					vrin.arcs.push_back(planning::flipArc(v[i]));
+//					vrin.left.push_back(in + offset);
+//					vrin.color.push_back(0.0);
+//				}
+//
+//				offset += v.size();
+//			}
+//
+//			// ii. vrin boundary
+//			{
+//				Point p0(1, -1);
+//				Point p1(1, 1);
+//				Point p2(-1, 1);
+//				Point p3(-1, -1);
+//
+//				auto a0 = cd::constructArc(p0, p1, 10, true, true);
+//				auto a1 = cd::constructArc(p1, p2, 10, true, true);
+//				auto a2 = cd::constructArc(p2, p3, 10, true, true);
+//				auto a3 = cd::constructArc(p3, p0, 10, true, true);
+//
+//				vrin.arcs.push_back(a0);
+//				vrin.arcs.push_back(a1);
+//				vrin.arcs.push_back(a2);
+//				vrin.arcs.push_back(a3);
+//
+//				vrin.left.push_back(offset + 3);
+//				vrin.left.push_back(offset + 0);
+//				vrin.left.push_back(offset + 1);
+//				vrin.left.push_back(offset + 2);
+//
+//				vrin.color.push_back(1.0);
+//				vrin.color.push_back(1.0);
+//				vrin.color.push_back(1.0);
+//				vrin.color.push_back(1.0);
+//			}
+//
+//			// iii. do vor
+//			voronoiCalculator vc;
+//			vector<deque<VoronoiEdge>> res;
+//
+//			vc.setInput(vrin.arcs, vrin.left, vrin.color);
+//			vc.setOutput(res);
+//			vc.calculate();
+//
+//			// iv. draw
+//			glColor3f(1, 0, 1);
+//			glBegin(GL_LINES);
+//			for (auto& deq : res)
+//				for (auto& ve : deq)
+//				{
+//					glVertex2dv(ve.v0.P);
+//					glVertex2dv(ve.v1.P);
+//				}
+//			glEnd();
+//
+//
+//		}
+//		
+//		// loop related
+//		{
+//			// 8. flush current loop to models_arc
+//			if (Key3('o'))
+//			{
+//				// if(form loop)
+//				if (model_arcs.size() > 0 && model_arcs.front().x0() == model_arcs.back().x1())
+//				{
+//
+//					vector<CircularArc> refined;
+//					vector<Circle> interiorDisks;
+//
+//					// i. refine
+//					Refiner rf;
+//					rf.g1(model_arcs, refined);
+//
+//					// ii. find disk
+//					findInteriorDisks2(refined, samplingRate, interiorDisks);
+//
+//					// iii. push
+//					models_arcs.push_back(refined);
+//					models_disk.push_back(interiorDisks);
+//
+//					// iv. flush
+//					model_arcs.clear();
+//					model_disk.clear();
+//					mouseState = 0;
+//
+//					cout << "recording loop with size = " << refined.size() << ", disk = " << interiorDisks.size() << endl;
+//				}
+//			}
+//
+//			// 9. save arc/disk to file
+//			if (Key3('-'))
+//			{
+//				int totalArc = 0, totalCirc = 0;
+//
+//				for (auto& v : models_arcs)
+//					totalArc += v.size();
+//				for (auto& v : models_disk)
+//					totalCirc += v.size();
+//
+//				cout << "Writing (arc, disk) = (" << totalArc << ", " << totalCirc << ") to file" << endl;
+//
+//				// write arc
+//				{
+//					ofstream arcout("modelEditor/arc.txt");
+//					arcout << std::setprecision(20);
+//
+//					arcout << totalArc << endl;
+//					for (auto& v : models_arcs)
+//						for (auto& a : v)
+//						{
+//							auto par = a.param();
+//
+//							arcout << "d " << a.cx() << " " << a.cy() << " " << a.cr() << " "
+//								<< par.first * 180.0 / PI << " " << par.second * 180.0 / PI << " " << a.ccw << endl;
+//						}
+//
+//				}
+//
+//				// write disk
+//				{
+//					ofstream circout("modelEditor/circ.txt");
+//					circout << std::setprecision(20);
+//
+//					circout << totalCirc << endl;
+//					for (auto& v : models_disk)
+//						for (auto& c : v)
+//						{
+//							circout << c.c.x() << " " << c.c.y() << " " << c.r << endl;
+//						}
+//				}
+//
+//			}
+//		}
+//
+//		// 99.
+//		for (int i = 0; i < 256; i++)
+//		{
+//			//Key2(i) = Key(i);
+//			planning::keyboardflag_last[i] = planning::keyboardflag[i];
+//		}
+//
+//		glutSwapBuffers();
+//	}
+//
+//
+//	int main(int argc, char* argv[])
+//	{
+//		// 0. print manual
+//		{
+//			cout << manual << endl;
+//		}
+//
+//		// 1. basic stuff
+//		wd = 800;
+//		ht = 800;
+//		glutInit(&argc, argv);
+//		glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH);
+//		glutInitWindowSize(wd, ht);
+//		glutCreateWindow("SceneEditor");
+//		//glEnable(GL_SCISSOR_TEST);
+//
+//		// 99. register Func and start loop
+//		glutReshapeFunc(reshapeFunc);
+//		glutDisplayFunc(displayFunc);
+//		glutMouseFunc(mouseFunc);
+//		glutKeyboardFunc(keyboardFunc);
+//		glutKeyboardUpFunc(keyboardUpFunc);
+//		glutIdleFunc(idleFunc);
+//		glutMotionFunc(motionFunc);
+//		glutPassiveMotionFunc(motionFunc);
+//
+//		glutMainLoop();
+//		
+//		return 0;
+//	}
+//}

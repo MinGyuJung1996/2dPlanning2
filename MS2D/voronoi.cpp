@@ -4,7 +4,10 @@
 #include <iomanip>
 #include "support.hpp"
 
-#define useCvxHullAsVorBound true
+#define TEST_CONVERT_MS_G0 false
+
+#define OPT_useCvxHullAsVorBound  false
+#define OPT_expandCvxHullVorBound true
 
 namespace planning
 {
@@ -1145,53 +1148,56 @@ namespace planning
 		//debug		see connected
 		//cout << "Done converting" << endl;
 		
-		int rs = returned.size();
-		//cout << "Number of Arcs at mod1 = " << ms::ModelInfo_CurrentModel.first << ", mod2 = " << ms::ModelInfo_CurrentModel.second << ", degree = " << ms::ModelInfo_CurrentFrame << " : " << rs << endl;
-		static int count = 0;
-		bool err = false;
-		for (int i = 0; i < returned.size(); i++)
+		if (TEST_CONVERT_MS_G0)
 		{
-			int next = (i + 1) % rs;
-			auto diff = returned[i].x[1] - returned[next].x[0];
-			auto xeql = isZero(diff.P[0]);
-			auto yeql = isZero(diff.P[1]);
-		
-		
-			if (!(xeql && yeql))
+			int rs = returned.size();
+			//cout << "Number of Arcs at mod1 = " << ms::ModelInfo_CurrentModel.first << ", mod2 = " << ms::ModelInfo_CurrentModel.second << ", degree = " << ms::ModelInfo_CurrentFrame << " : " << rs << endl;
+			static int count = 0;
+			bool err = false;
+			for (int i = 0; i < returned.size(); i++)
 			{
-				cout << "ERROR : sth is not cont. @ " << i << " with model info " << ms::ModelInfo_CurrentModel.first << " " << ms::ModelInfo_CurrentModel.second << " " << ms::ModelInfo_CurrentFrame << endl;
-				cout << "x values at i = " << i << "   " << returned[i].x[0].P[0] << ", " << returned[i].x[1].P[0] << " with x,y diff " << diff.P[0] << ", " << diff.P[1]  << endl;
-				err = true;
+				int next = (i + 1) % rs;
+				auto diff = returned[i].x[1] - returned[next].x[0];
+				auto xeql = isZero(diff.P[0]);
+				auto yeql = isZero(diff.P[1]);
+
+
+				if (!(xeql && yeql))
+				{
+					cout << "ERROR : sth is not cont. @ " << i << " with model info " << ms::ModelInfo_CurrentModel.first << " " << ms::ModelInfo_CurrentModel.second << " " << ms::ModelInfo_CurrentFrame << endl;
+					cout << "x values at i = " << i << "   " << returned[i].x[0].P[0] << ", " << returned[i].x[1].P[0] << " with x,y diff " << diff.P[0] << ", " << diff.P[1] << endl;
+					err = true;
+				}
+				//cout << i << "   " << returned[i].x[1].P[0] - returned[next].x[0].P[0] << " , " << returned[i].x[1].P[1] - returned[next].x[0].P[1] << endl;
+
 			}
-			//cout << i << "   " << returned[i].x[1].P[0] - returned[next].x[0].P[0] << " , " << returned[i].x[1].P[1] - returned[next].x[0].P[1] << endl;
-		
+
+			////4. check loop is formed
+			////dbg
+			//double loopformErr = 1e-4;
+			//if (returned.size() != 0)
+			//{
+			//	auto dv = returned.front().x0() - returned.back().x1();
+			//	if (dv.length2() > loopformErr)
+			//	{
+			//		cout << "!!! ERR : convertMsOutput_ClockWise : This does not form a loop " << endl;
+			//		returned.resize(0);
+			//	}
+			//}
+
+			//if (!err) cout << "No error in " << count++ << endl;
+
+			//
+			///*for (int i = 309; i <= 315; i++)
+			//{
+			//	auto& a = returned[i];
+			//	cout << i << " " <<
+			//		"ccw : " << a.ccw <<
+			//		", rad : " << a.c.r <<
+			//		", cen : " << a.c.c << endl;
+			//}*/
+			////~debug
 		}
-
-		////4. check loop is formed
-		////dbg
-		//double loopformErr = 1e-4;
-		//if (returned.size() != 0)
-		//{
-		//	auto dv = returned.front().x0() - returned.back().x1();
-		//	if (dv.length2() > loopformErr)
-		//	{
-		//		cout << "!!! ERR : convertMsOutput_ClockWise : This does not form a loop " << endl;
-		//		returned.resize(0);
-		//	}
-		//}
-
-		//if (!err) cout << "No error in " << count++ << endl;
-
-		//
-		///*for (int i = 309; i <= 315; i++)
-		//{
-		//	auto& a = returned[i];
-		//	cout << i << " " <<
-		//		"ccw : " << a.ccw <<
-		//		", rad : " << a.c.r <<
-		//		", cen : " << a.c.c << endl;
-		//}*/
-		////~debug
 	}
 
 	/*
@@ -2526,10 +2532,6 @@ namespace planning
 				output.push_back(asTemp);
 			}
 
-
-
-
-
 		}
 	}
 
@@ -2709,7 +2711,7 @@ namespace planning
 			//vrIn.color.push_back(1);
 			//vrIn.arcsPerLoop.push_back(4);
 
-			#if !(useCvxHullAsVorBound)
+			#if !(OPT_useCvxHullAsVorBound)
 			auto s = vrIn.arcs.size();
 			size_t length = voronoiBoundary.size();
 			for (size_t i = 0; i < length; i++)
@@ -2744,6 +2746,11 @@ namespace planning
 			vector<CircularArc> chOff;
 			static double offset = 0.2;
 			CvxHullCalc::offset(ch, chOff, offset);
+
+			// i-2. do processing
+			{
+				// for some 
+			}
 
 			// ii. do actual pushing
 			auto s = vrIn.arcs.size();

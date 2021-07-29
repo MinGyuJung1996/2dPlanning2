@@ -71,4 +71,19 @@ TODO LIST
 	3. read file(model editor)
 	4. pick loop(model editor) + delete
 	5. add boundary?
+
+25. for now
+	path opt more
+	more features on scene editor (align global, align diag, zoom-camera, better picking curvatrue)
+
+26. for now
+	more straight line -> image refine
+		=> display background
+			=> zoom/trans cam
+	performance experiments
+	modelEditor:draw -cspae => change mode
+	RSV
+	(path-opt) -> AS-path -> rot with arc -> sweep path
+
+
 */

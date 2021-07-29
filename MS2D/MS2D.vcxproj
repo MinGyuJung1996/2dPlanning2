@@ -144,6 +144,7 @@
       <FloatingPointModel>Precise</FloatingPointModel>
       <EnableFiberSafeOptimizations>false</EnableFiberSafeOptimizations>
       <OpenMPSupport>true</OpenMPSupport>
+      <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -173,6 +174,7 @@
     <ClCompile Include="dijkstra.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="main2.cpp" />
+    <ClCompile Include="modelEditor.cpp" />
     <ClCompile Include="MS2D.cpp" />
     <ClCompile Include="Bernstein.cpp" />
     <ClCompile Include="realMain.cpp" />

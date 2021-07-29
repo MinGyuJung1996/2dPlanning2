@@ -5,9 +5,8 @@
 //double dbgBlock[100];
 std::vector<double> debugBlock;
 
+#define CERR_MINK false
 
-#define useApproxInSymmetryCollision true
-#define useNewerVersionOfG1conveter false
 
 #define DEBUG
 	// Tells that the associated codes were for debugging
@@ -292,10 +291,10 @@ void initializeRobotObstacles(int RobotIdx, int ObstaclesIdx)
 			nRobot = 3,
 			nObs = 6;
 
-		if (RobotIdx < 0)
-			RobotIdx = 0;
-		if (RobotIdx >= nRobot)
-			RobotIdx = nRobot - 1;
+		//if (RobotIdx < 0)
+		//	RobotIdx = 0;
+		//if (RobotIdx >= nRobot)
+		//	RobotIdx = nRobot - 1;
 		
 		//if (ObstaclesIdx < 0)
 		//	ObstaclesIdx = 0;
@@ -321,6 +320,16 @@ void initializeRobotObstacles(int RobotIdx, int ObstaclesIdx)
 		double scaleFactor = 1.0;
 		switch (RobotIdx)
 		{
+		case 4:
+			path += "8-3/";
+			scaleFactor = 0.2;
+			robotForward = Point(1, 1).normalize();
+			break;
+		case 3:
+			path += "8-2/";
+			scaleFactor = 0.2;
+			robotForward = Point(1, 1).normalize();
+			break;
 		case 1:
 			path += "8/";
 			scaleFactor = 0.2;
@@ -367,10 +376,14 @@ void initializeRobotObstacles(int RobotIdx, int ObstaclesIdx)
 		else
 			planning::_Convert_VectorCircularArc_G1(g0, g1);
 
+		//
+		cout << "Robot Arcs: " << endl;
+		for (auto& a : g1)
+			cout << a << endl;
+
 		// 1-6. convert to AS
 		vector<ArcSpline>& asRSV = robVAS;
 		planning::_Convert_VectorCircularArc_To_MsInput(g1, asRSV);
-
 	}
 
 	if (RobotIdx == 2)
@@ -472,6 +485,56 @@ void initializeRobotObstacles(int RobotIdx, int ObstaclesIdx)
 		Point uniformTranslation;
 		switch (ObstaclesIdx)
 		{
+		case 14:
+		{
+			//
+			vector<CircularArc> arcs;
+			vector<Circle>	   circs;
+
+			readArcModel(
+				"modelEditor/sq2/arc.txt",
+				"modelEditor/sq2/circ.txt",
+				arcs, circs
+			);
+			appendArcModel(sceneOriginal, sceneCircles, arcs, circs, 1.0, 0.0, Point(0, 0));
+			break;
+		}
+		case 13:
+		{
+			// 
+			vector<CircularArc> arcs;
+			vector<Circle>	   circs;
+
+			readArcModel(
+				"modelEditor/maze/arc.txt",
+				"modelEditor/maze/circ.txt",
+				arcs, circs
+			);
+			appendArcModel(sceneOriginal, sceneCircles, arcs, circs, 1.0, 0.0, Point(0, 0));
+			break;
+		}
+		case 12:
+		{
+			// 
+			vector<CircularArc> arcs;
+			vector<Circle>	   circs;
+
+			readArcModel(
+				"modelEditor/stringPG2021f/arc.txt",
+				"modelEditor/stringPG2021f/circ.txt",
+				arcs, circs
+			);
+			appendArcModel(sceneOriginal, sceneCircles, arcs, circs, 1.0, 0.0, Point(0, 0));
+			{
+				cout << "Checking strange arcs " << endl;
+				for (auto& a : sceneOriginal)
+				{
+					if (a.cr() < 0)
+						cout << "r : " << a.cr() << endl;
+				}
+			}
+			break;
+		}
 		case 11:
 		{
 			// tan fig 8
@@ -1461,6 +1524,11 @@ void findInteriorDisks(vector<CircularArc>& _in_model, int _in_sampling_rate, ve
 /*
 Def:
 	similar to 1, but uses different sampling rate per arc,
+Par:
+	_in_sampling_length: arc with length l has n disks,
+		where n = ceil(l / _in_sampling_length)
+Ref:
+	void findInteriorDisks(vector<CircularArc>& _in_model, int _in_sampling_rate, vector<Circle>& _out_disks)
 */
 void findInteriorDisks2(vector<CircularArc>& _in_model, double _in_sampling_length, vector<Circle>& _out_disks)
 {
@@ -1519,6 +1587,78 @@ void findInteriorDisks2(vector<CircularArc>& _in_model, double _in_sampling_leng
 	}
 
 }
+
+/*
+Def:
+	finds interior disks for arcs from multiple loops.
+	loopIdx is recorded
+Assume:
+	_in_model.size() == _in_idx.size()
+Ref:
+	void findInteriorDisks2(vector<CircularArc>& _in_model, int _in_sampling_rate, vector<Circle>& _out_disks)
+*/
+void findInteriorDisksWithIdx(vector<CircularArc>& _in_model, vector<int>& _in_idx, double _in_sampling_length, vector<Circle>& _out_disks, vector<int>& _out_idx)
+{
+	constexpr double _h_disk_radius_multiplier = 0.99; // using the exact touching disk may-be erroneous
+	constexpr double _min_rad_init_val = 1.0e+10;
+
+	auto& arcs = _in_model;
+	//auto& ns = _in_sampling_rate;
+	auto& out = _out_disks;
+	auto& arcsIdx = _in_idx;
+	auto& diskIdx = _out_idx;
+
+	// for(each arc)
+	for (int i = 0; i < arcs.size(); i++)
+	{
+		auto& arc = arcs[i];
+
+		auto par = arc.param();
+		auto arcLen = arc.cr() * abs(par.second - par.first);
+		int ns = ceil(arcLen / _in_sampling_length);
+
+		// for(n of samples)
+		for (int j = 0; j < ns; j++)
+		{
+			// 1. find point-normal at t;
+			double t = double(j + 1) / (ns + 1); // [0, 1)
+			auto par = arc.param();
+			double theta = par.first * (1 - t) + par.second * (t);
+
+			Point pos = arc.xt(theta);
+			Point tan = arc.tan(theta);
+			Point nor = tan.rotate(); // assumption that: globalccw
+
+			// 2. find max touch rad;
+			//for(each compared arc)
+			double minRad = _min_rad_init_val;
+			double temp;
+			for (int k = 0; k < arcs.size(); k++)
+			{
+				// 2-0. continue when same arc
+				if (i == k)
+					continue;
+
+				// 2-1. find point normal pair from this arc;
+				double rad = arcs[k].maxTouchRad(pos, nor, temp);
+				if (rad > 0.0 && rad < minRad)
+					minRad = rad;
+			}
+
+			// 3. check error-case, if (not) push
+			if (minRad != _min_rad_init_val)
+			{
+				auto center = pos + minRad * nor;
+				out.emplace_back(center, minRad * _h_disk_radius_multiplier);
+				diskIdx.push_back(arcsIdx[i]);
+			}
+		}
+
+	}
+
+}
+
+
 #pragma endregion
 
 namespace ms{
@@ -2513,6 +2653,7 @@ void minkowskisum(int frame, int figure2)
 	}
 
 	//dbg_out
+	if(CERR_MINK)
 	{
 		std::cout << frame << " : ConvolutionArcs.size() : " << ConvolutionArcs.size() << std::endl
 			<< "  -M_R_app_size : " << Models_Rotated_Approx[frame].size() << std::endl
