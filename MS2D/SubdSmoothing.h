@@ -2,6 +2,7 @@
 
 #include "AStarOnVorDiag.h"
 typedef Vertex Vector3D;
+#include "collision detection.hpp"
 
 //----------------------------------------------------------------------------
 class BezierCurve3D
@@ -54,6 +55,7 @@ public:
     double getDistanceTo(const PntTng& other)  const { return pt.dist(other.pt); }
     void setTangents(const PntTng& prev_pt, const PntTng& next_pt);
     void setNaiveNorm(const PntTng& prev_pt, const PntTng& next_pt);
+    void setEndpointNormAndTang(const PntTng& other, bool b_other_is_next);
 
 public:
     Vertex pt;
@@ -63,5 +65,74 @@ public:
 };
 
 //----------------------------------------------------------------------------
+class BezierQuasiAverage
+{
+public:
+    BezierQuasiAverage(vector<cd::pointCollisionTester>& collisionTesters) :
+        collisionTesters_(collisionTesters) {}
+    PntTng operator() (double t0, const PntTng& p0, const PntTng& p1) const;
+private:
+    vector<cd::pointCollisionTester>& collisionTesters_;
+};
 
+//----------------------------------------------------------------------------
+template<typename PointsMetaClass, typename AveraginFunctor>
+vector<PointsMetaClass>
+double_polygon(const vector<PointsMetaClass>& pnts, 
+               bool b_open,
+               bool b_preserve, 
+               const AveraginFunctor& fnAvg)
+{
+    size_t N = pnts.size();
+    size_t NN = b_open ? (N - 1) : N;
+    vector<PointsMetaClass> res;// (NN * (b_preserve ? 2 : 1));
+
+    for (size_t i = 0; i < NN; ++i)
+    {
+        PointsMetaClass r = fnAvg(0.5, pnts[i], pnts[(i + 1) % N]);
+
+        if (b_preserve)
+            res.push_back(pnts[i]);
+        res.push_back(r);
+    }
+    if (b_preserve && b_open)
+        res.push_back(*pnts.rbegin());
+
+    return res;
+}
+
+//----------------------------------------------------------------------------
+template<typename PointsMetaClass, 
+         typename AveraginFunctor>
+vector<PointsMetaClass>
+perform_Lane_Riesenfeld_algorithm(  const vector<PointsMetaClass>&  pnts,
+                                    bool                            b_open,
+                                    unsigned int                    n_iterations,
+                                    unsigned int                    n_smoothing_inner_steps,
+                                    const AveraginFunctor&          fnAvg)
+{
+    vector<PointsMetaClass> res(pnts);
+    while (n_iterations-- > 0)
+    {
+        res = double_polygon<PointsMetaClass, AveraginFunctor>( res,
+                                                                b_open,
+                                                                true,
+                                                                fnAvg);
+        for (unsigned int m = 0; m < n_smoothing_inner_steps; ++m)
+            res = double_polygon<PointsMetaClass, AveraginFunctor>( res,
+                                                                    b_open,
+                                                                    false,
+                                                                    fnAvg);
+    }
+    return res;    
+}
+//----------------------------------------------------------------------------
+using namespace cd;
+class cd::pointCollisionTester;
+vector<Vertex>
+subd_smoothing(const vector<Vertex>& vecVertices,
+               vector<cd::pointCollisionTester>& collisionTesters,
+               bool b_open = false,
+               int n_iterations = 1,
+               int n_smoothing_inner_steps = 0);
 //============================ END OF FILE ===================================
