@@ -5,6 +5,7 @@
 #include "collision detection.hpp"
 #include "support.hpp"
 #include "dijkstra.hpp"
+#include "distance field.hpp"
 using namespace std;
 extern double vbRad;
 
@@ -218,7 +219,9 @@ int main(int argc, char *argv[]) {
 
 	//cout << "fake func" << endl;
 
-	modelEditor::main(argc, argv);	// make model/scene with mouse
+	// nav real
+
+	//modelEditor::main(argc, argv);	// make model/scene with mouse
 	//sceneEditor::main(argc, argv);	// interactive editing of scene
 	//rendering3D::main3::main3(argc, argv);	// draw 3d c-space
 	graphSearch::main2(argc, argv);		// draw moving robot
@@ -248,6 +251,25 @@ namespace graphSearch
 
 	djkCalc dijk;
 
+	// nav rob 
+	// nav obs
+
+	int robotType = 4;
+	/*
+	1 : 8
+	3 : 8-2
+	*/
+	int obsType = 12; // nav obs
+	/* options: (obs)
+	3: curved S corridor
+	1,4 1,5
+	1,6~11 (made with modelEditor)
+	*12: pg2021
+	13: maze
+	*15: magnified 3
+	*16: maze refined 
+	*/
+
 	/*
 	Def:
 		Computes Voronoi Edges for each slice, and store them in a vector<vector<v_edge>> v_edges.
@@ -255,19 +277,7 @@ namespace graphSearch
 	*/
 	int main2(int argc, char* argv[])
 	{
-		int robotType = 4;
-		/*
-		1 : 8
-		3 : 8-2
-		*/
-		int obsType   = 3;
-		/* options: (obs)
-		3: curved S corridor
-		1,4 1,5 
-		1,6~11 (made with modelEditor)
-		12: pg2021
-		13: maze
-		*/
+		
 
 
 		//minor stuffs with model
@@ -289,9 +299,9 @@ namespace graphSearch
 		planning::output_to_file::bifur_points.resize(0); // dummy
 		planning::output_to_file::bifur_points.resize(ms::numofframe); //dummy
 		planning::drawVoronoiSingleBranch = false; //disable drawing for now.
-		
 
 		auto mvStartTime = clock();
+		auto hrc0 = std::chrono::high_resolution_clock::now();
 		for (size_t i = 0, length = ms::numofframe /* = 360*/; i < length; i++)
 		{
 			// 1-1. minks
@@ -302,6 +312,10 @@ namespace graphSearch
 			MIBs[i] = ms::ModelInfo_Boundary;
 			IDC[i] = ms::InteriorDisks_Convolution;
 
+		//}
+		//auto hrc1 = std::chrono::high_resolution_clock::now();
+		//for (size_t i = 0, length = ms::numofframe /* = 360*/; i < length; i++)
+		//{
 			// 1-2. Vor
 			planning::VR_IN& vrin = VRINs[i];
 			planning::_Convert_MsOut_To_VrIn(ms::Model_Result, ms::ModelInfo_Boundary, vrin);
@@ -397,6 +411,15 @@ namespace graphSearch
 			//std::cout << "voronoi " << i << " "
 			//	<< planning::output_to_file::v_edges[i].size() << std::endl;
 		}
+
+		//auto hrc2 = std::chrono::high_resolution_clock::now();
+		//auto dc0 = chrono::duration_cast<chrono::milliseconds>(hrc1 - hrc0).count();
+		//auto dc1 = chrono::duration_cast<chrono::milliseconds>(hrc2 - hrc1).count();
+		//cout << "!INFO: mink time: " << dc0 << "ms" << endl;
+		//cout << "!INFO: vor  time: " << dc1 << "ms" << endl;
+		//cout << "!INFO: arcs robot: " << Model_vca[1].size() << endl;
+		//cout << "!INFO: arcs obsta: " << Model_vca[7].size() << endl;
+
 		planning::output_to_file::flag = false;
 		auto mvEndTime = clock();
 		cout << "mink + voronoi time : "

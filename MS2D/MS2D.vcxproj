@@ -158,6 +158,7 @@
     <ClInclude Include="collision detection.hpp" />
     <ClInclude Include="Commentated Notes About The Project.h" />
     <ClInclude Include="dijkstra.hpp" />
+    <ClInclude Include="distance field.hpp" />
     <ClInclude Include="MS2D.h" />
     <ClInclude Include="refine.hpp" />
     <ClInclude Include="stb.h" />
@@ -170,8 +171,11 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="AStarOnVorDiag.cpp" />
+    <ClCompile Include="boundaryExtractor.cpp" />
+    <ClCompile Include="boundaryExtractor.hpp" />
     <ClCompile Include="collision detection.cpp" />
     <ClCompile Include="dijkstra.cpp" />
+    <ClCompile Include="distance field.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="main2.cpp" />
     <ClCompile Include="modelEditor.cpp" />

@@ -485,6 +485,32 @@ void initializeRobotObstacles(int RobotIdx, int ObstaclesIdx)
 		Point uniformTranslation;
 		switch (ObstaclesIdx)
 		{
+		case 16:
+		{
+			// 
+			vector<CircularArc> arcs;
+			vector<Circle>	   circs;
+
+			readArcModel(
+				"modelEditor/maze_graph/arc.txt",
+				"modelEditor/maze_graph/circ.txt",
+				arcs, circs
+			);
+			appendArcModel(sceneOriginal, sceneCircles, arcs, circs, 1.0, 0.0, Point(0, 0));
+			break;
+		}
+		case 15:
+		{
+			double mag = 1.5;
+			uniformTranslation = Point(0.15, 0.05);
+			appendArcModel(sceneOriginal, sceneCircles, arcObjectL3, circObjectL3,		mag * 1.3,  -90.05, mag * (uniformTranslation + Point(-0.1,  +0.10)));
+			appendArcModel(sceneOriginal, sceneCircles, arcObjectL2, circObjectL2,		mag * 0.4,  -90.05, mag * (uniformTranslation + Point(-0.1,  +0.10)));
+			appendArcModel(sceneOriginal, sceneCircles, arcObjectL3, circObjectL3,		mag * 1.3,  +90.05, mag * (uniformTranslation + Point(-0.5,  +0.03)));
+			appendArcModel(sceneOriginal, sceneCircles, arcObjectL2, circObjectL2,		mag * 0.4,  +90.05, mag * (uniformTranslation + Point(-0.5,  +0.03)));
+			appendArcModel(sceneOriginal, sceneCircles, arcObjectSqG1, circObjectSqG1,	mag * 0.5,  +0.05 , mag * (uniformTranslation + Point(+0.07, -0.30)));
+			appendArcModel(sceneOriginal, sceneCircles, arcObjectSqG1, circObjectSqG1,	mag * 0.25, +55.05, mag * (uniformTranslation + Point(-0.53,  0.30)));
+			break;
+		}
 		case 14:
 		{
 			//
@@ -974,6 +1000,12 @@ void refinePathBiarc(vector<Vertex>& in, int nBiarc, vector<CircularArc>& outArc
 				auto& mid3 = in[ind];
 				Point mid2(mid3.x, mid3.y);
 				junc = center + rad * (mid2 - center).normalize();
+
+				if ((junc - mid2).length2() > 1e-6)
+				{
+					Point temp = pos0 * 0.9 + pos1 * 0.1;
+					junc = center + rad * (temp - center).normalize();
+				}
 			}
 
 			// 4-3. do arc
@@ -982,6 +1014,15 @@ void refinePathBiarc(vector<Vertex>& in, int nBiarc, vector<CircularArc>& outArc
 			arc1 = flipArc(arc1);
 
 			// 4-4. push
+			// check valid
+			{
+				if (isnan(arc0.x0().x()) ||
+					isnan(arc1.x0().x()) ||
+					isnan(arc1.x1().x()) )
+					continue;
+			}
+
+
 			outArc.push_back(arc0);
 			outArc.push_back(arc1);
 			outRot.push_back(in[ind0].z);
@@ -1033,15 +1074,21 @@ void tessPathBiarc(vector<CircularArc>& in_pathBiarc, vector<double>& in_pathBia
 			// eval pt
 			p = arc.c.c + arc.cr() * Point(cos(theta),sin(theta));
 
-			//dbg_out
-			cout << " p : " << p << endl;
+			////dbg_out
+			//cout << " p : " << p << endl;
 		}
 
 		// 3. Rot
 		double Rot;
 		{
 			double t = (theta - theta0) / (theta1 - theta0);
-			Rot = (1 - t) * pbr[arcIdx] + t * pbr[arcIdx + 1];
+			double deg0 = pbr[arcIdx];
+			double deg1 = pbr[arcIdx+1];
+			if ((deg0 - deg1) > 180.0)
+				deg1 += 360.0; // assume they lie in [0, 360)
+			if (deg1 - deg0 > 180.0)
+				deg0 += 360.0;
+			Rot = (1 - t) * deg0 + t * deg1;
 		}
 
 		// 4. push

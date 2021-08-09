@@ -545,6 +545,7 @@ djkCalc::buildGraph
 	vector<vector<Weight>> 
 		wgtBtwSlc(ns); // weight between slices
 	// !!! TODO: Need optimization : Grid?
+	auto t0 = std::chrono::high_resolution_clock::now();
 	{
 		for (int sn = 0; sn < ns; sn++)
 		{
@@ -607,6 +608,9 @@ djkCalc::buildGraph
 		}
 		
 	}
+	auto t1 = std::chrono::high_resolution_clock::now();
+	auto d0 = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+	std::cout << "!INFO: sliceConnection Time : " << d0 << "ms" << std::endl;
 
 	// 3. build index translation (needed for section 4)
 	vector<int>& idxTrn = _idxTrn; // index translation := change local idx in a slice to global idx // (sliceNo, vertNo) -> idxTrn[sliceNo] + vertNo;
@@ -1730,7 +1734,8 @@ gs::Weight djkCalc::nhMultiplier(const Point& p, const Point& q, Point& forward,
 	//else
 	//	return 1e100;
 
-	return floor(((1 - abs(dot)) * 20.0)) + 1.0;
+	return floor(((1 - abs(dot)) * 20.0)) + 1.0; // usually used
+	return floor(((1 - abs(dot)) * 100.0)) + 1.0; 
 	return floor(((1 - abs(dot)) * 10.0)) + 1.0;
 }
 

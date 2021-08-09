@@ -12,6 +12,9 @@ namespace fs = std::experimental::filesystem; // may need to be changed, since i
 
 #define COUT(x) #x " : " << x
 
+
+void arcAlignedPathSweepVolume(vector<CircularArc>& _in_path, vector<CircularArc>& _in_robot, vector<CircularArc>& _out);
+
 namespace modelEditor
 {
 	int wd, ht;
@@ -32,7 +35,7 @@ namespace modelEditor
 	double _h_line_rad = 100.0;
 	
 	// mode : may need to change to enum later
-	enum modes { modes_editing = 0, modes_cspace };
+	enum modes { modes_editing = 0, modes_cspace, modes_rsv };
 	modes pgMode = modes_editing;
 
 	// result, current edit
@@ -45,7 +48,7 @@ namespace modelEditor
 	int loopIdx = -1;
 
 	// 
-	vector<CircularArc> display_arcs;
+	vector<CircularArc> background_arcs;
 
 	//  cameraMatrix
 	float cameraMatrix[16] = {
@@ -77,6 +80,7 @@ namespace modelEditor
 Make CCW loop and find interior disks
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Mode 0 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~ Draw stuff
 
 Mouse Left: draw
 Mouse Right: undo
@@ -107,6 +111,7 @@ n,m: scale  loop
 <  : copy   loop 
 >  : delete loop
 ;  : recalculate disk for loops
+'  : set background display loop
 
 // Numbers (Change visibility)
 ~: change mode
@@ -114,8 +119,11 @@ n,m: scale  loop
 2: print mouse positions
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Mode 1 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~ show mink vor
 
 
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Mode 2 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~ show rsv (path = currently drawing arcs)
 )del";
 
 	/*
@@ -664,12 +672,15 @@ n,m: scale  loop
 		{
 			switch (pgMode)
 			{
+			default:
 			case modes::modes_editing:
 				mode1::obsSet = false;
 				pgMode = modes::modes_cspace;
 				break;
-			default:
 			case modes::modes_cspace:
+				pgMode = modes::modes_rsv;
+				break;
+			case modes::modes_rsv:
 				pgMode = modes::modes_editing;
 				break;
 			}
@@ -931,11 +942,53 @@ n,m: scale  loop
 			_h_line_rad = abs(d);
 		}
 
-		// 10. draw c-space
-		if (Key('b'))
+		// 10. background
+		if (Key3('\''))
 		{
+			cout << "name of background object: (type no to clear) " << endl;
+			string name;
+			cin >> name;
 
+			if (name == "no")
+			{
+				background_arcs.clear();
+			}
+			else
+			{
+				if (name[0] == '/')
+					name = string(name.c_str() + 1); // remove first char if ('/')
+				if (name.back() == '/')
+					name.pop_back();
+
+				name = "modelEditor/" + name;
+
+				string arcFileName, cirFileName;
+				{
+					arcFileName = name + "/arc.txt";
+					cirFileName = name + "/circ.txt";
+				}
+
+				ifstream arcin(arcFileName), crcin(cirFileName);
+				if (!arcin || !crcin)
+				{
+					cout << "Failed to read file" << endl;
+				}
+				else
+				{
+					// read data
+					vector<Circle> cread;
+					readArcModel(arcFileName.c_str(), cirFileName.c_str(), background_arcs, cread);
+				}
+			}
 		}
+		{
+			glColor3f(0.8, 0.8, 0.8);
+			for (auto& a : background_arcs)
+			{
+				a.draw2();
+			}
+		}
+
 
 		////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		//																															  //
@@ -1473,7 +1526,97 @@ n,m: scale  loop
 
 			// 3. change robot
 		}
+		else if (pgMode == modes_rsv)
+		{
+			auto& robot = ms::Model_vca[1];
+			//
+			robotForward = Point(1, 1).normalize();
 
+			auto path = model_arcs;
+
+			vector<CircularArc> temp;
+
+			arcAlignedPathSweepVolume(path, robot, temp);
+
+			if (!Key('1'))
+			{
+				glColor3f(0, 0, 0);
+				for (auto& a : path)
+					a.draw2();
+			}
+			if (!Key('2'))
+			{
+				glColor3f(0, 0, 1);
+				for (auto& a : temp)
+					a.draw2();
+			}
+			if (!Key('3'))
+			{
+				glColor3f(0, 1, 0);
+				auto& p = path;
+				auto& r = robot;
+
+				for (auto& a : p)
+				{
+					auto temp = r;
+
+					auto t = atan2(robotForward.y(), robotForward.x());
+					auto tan0 = a.tan0();
+					auto tan1 = a.tan1();
+					auto t0 = atan2(tan0.y(), tan0.x()) - t; // rot needed to
+					auto t1 = atan2(tan1.y(), tan1.x()) - t; // rot needed to
+
+					if (a.ccw)
+					{
+						while (t1 < t0)
+							t1 += PI2;
+					}
+					else
+					{
+						while (t0 < t1)
+							t0 += PI2;
+					}
+
+					// 1. rotate temp;
+					vector<CircularArc> temp2;
+					{
+						for (auto& b : temp)
+						{
+							temp2.push_back(cd::rotateArc(b, t0 * 180 / PI));
+						}
+					}
+
+					// 2. translate temp
+					vector<CircularArc> temp3;
+					{
+						for (auto& b : temp2)
+						{
+							auto trans = a.x0() - a.cc();
+							temp3.push_back(cd::translateArc(b, trans));
+						}
+					}
+					
+					// 3. rotate again
+					vector<CircularArc> temp4;
+					{
+						for (auto& b : temp3)
+						{
+							temp4.push_back(cd::rotateArc(b, (t1-t0) * 180 / PI));
+						}
+					}
+
+					// 4. draw
+					for (auto& b : temp2)
+						cd::translateArc(b, a.x0()).draw2();
+
+					for (auto& b : temp4)
+						cd::translateArc(b, a.cc()).draw2();
+
+				}
+
+			}
+
+		}
 
 		// 99.
 		for (int i = 0; i < 256; i++)

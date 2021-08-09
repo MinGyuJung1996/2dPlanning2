@@ -6,9 +6,11 @@
 #include "AStarOnVorDiag.h"
 #include "support.hpp"
 #include "dijkstra.hpp"
+#include "distance field.hpp"
 
 #define derr cerr
 #define COUT(x) #x " : " << x
+#define doErrorCheck true
 
 planning::coneVoronoi coneVor;
 
@@ -31,6 +33,9 @@ namespace graphSearch
 	extern std::vector<decltype(ms::InteriorDisks_Convolution)>	offsetIDC	;  // save conv/disk
 
 	extern djkCalc dijk;
+
+	extern int robotType;
+	extern int obsType;
 }
 
 void
@@ -41,6 +46,8 @@ void
 	tessPathAlignTheta(vector<Vertex>& pathTess, std::vector<cd::pointCollisionTester>& pTesters, Point forwardDir);
 void 
 	tessPathClear(vector<Vertex>& in_path, double in_tessLen, vector<Vertex>& out_path);
+void
+projectPathBiarc(vector<Vertex>& _in, vector<CircularArc>& _out);
 
 /*
 Def:
@@ -440,6 +447,859 @@ void optimizePath(vector<xyt>& _in_pos, vector<double>& _in_clr, vector<gs::Edge
 	out = temp;
 }
 
+/*
+Def:
+	construct arc with x0, x1, t0;
+	arcs with angle > 180 supported
+
+Ref:
+	cd::constructArc(x0, x1, t0);
+*/
+CircularArc halfBiArc(Point& x0, Point& x1, Point& t0)
+{
+	CircularArc ret;
+	Circle c(x0, x1, t0);
+	ret.c = c;
+	ret.x0() = x0;
+	ret.x1() = x1;
+	ret.n0() = c.localDirection(x0);
+	ret.n1() = c.localDirection(x1);
+
+	auto tempTan = ret.n0().rotate();
+	auto dot = tempTan * t0;
+	if(dot > 0)
+		ret.ccw = true;
+	else
+		ret.ccw = false;
+
+	return ret;
+}
+
+
+/*
+Def:
+	given a 3d polygonal path of robot(x,y,t),
+	make it "aligned-arc-path"
+	An aligned-arc-path is: 
+		path consisting of circular-arcs, and robot's rotation = which makes tangent || robotForward.
+		It consists of 3 arcs
+			R = 0		: pure rotation
+			R = inf		: pure translation
+			R = else	: rot+trans
+Warning:
+	No col-det:
+		use swept-volume later for col-det
+	The resulting arc falls into a class of generalized-circular-arc. (r = 0 or inf is possible)
+Assume:
+	shape of path:
+		1. pure rot (may not exist)
+		2. path with no pure rot(may exist, but not always cause error)
+		3. pure rot (may not exist)
+In:
+	nArcs,  
+TODO:
+	arc with inf rad
+	junction x case
+*/
+void makeAlignedArcPath(vector<Vertex>& _in, int _in_narcs, vector<CircularArc>& _out)
+{
+	constexpr int junctionPolicy = 2; // 0 : closest, 1: mid 2:
+
+	auto& in = _in;
+	auto& nArcs = _in_narcs;
+	auto& out = _out;
+
+	// if(doErrorCheck)
+	if (in.size() < nArcs * 2)
+		cerr << "Possible error at makeAlignedArcPath" << endl;
+
+	// 1. project
+	vector<Point> projectedPath; // 3d -> 2d, makes path into no rot
+	{
+		projectedPath.emplace_back(in.front().x, in.front().y);
+		for (int i = 1; i < in.size(); i++)
+		{
+			Point p(in[i].x, in[i].y);
+			bool isSamePoint;
+			{
+				auto len2 = (projectedPath.back() - p).length2();
+				if (len2 > 1e-16)
+					isSamePoint = false;
+				else
+					isSamePoint = true;
+			}
+			if (!isSamePoint)
+			{
+				projectedPath.push_back(p);
+			}
+		}
+	}
+
+	// 2. divide projected Path -> make intervals;
+	vector<int> intervals; // close-close interval -> as this is vertex's index (should use close-open if it was edge)
+	// has nArcs + elements
+	{
+		auto sz = projectedPath.size() - 1;
+
+		for (int i = 0; i < nArcs; i++)
+		{
+			intervals.push_back(sz * double(i) / nArcs);
+		}
+		intervals.push_back(sz);
+	}
+
+	// 3. evaluate intervals into pt-tan
+	vector<Point> p, t;
+	for (int i = 0; i < intervals.size(); i++)
+	{
+		int idx = intervals[i];
+
+		p.push_back(projectedPath[idx]);
+
+		Point tan;
+		if (i == 0)
+			tan = projectedPath[1] - projectedPath[0];
+		else if (i == intervals.size() - 1)
+			tan = projectedPath[projectedPath.size() - 1] - projectedPath[projectedPath.size() - 2];
+		else
+			tan = projectedPath[idx + 1] - projectedPath[idx - 1]; // notice that this can cause memory-access-error when nArcs >>> path.size()
+		tan.normalize();
+
+		t.push_back(tan);
+	
+	}
+
+	// 4. evaluate biarcs
+	for (int idx = 0; idx < intervals.size() - 1; idx++)
+	{
+		// idx of arc
+		int i0 = intervals[idx + 0];
+		int i1 = intervals[idx + 1];
+
+		if (i1 <= i0)
+			continue;
+
+		// find p-t
+		auto& p0 = p[idx];
+		auto& p1 = p[idx+1];
+
+		auto& t0 = t[idx];
+		auto& t1 = t[idx + 1];
+
+		// check case
+		if (p0 == p1)
+			continue;
+
+		if (t0 == t1)
+		{
+			// straight line case
+			out.push_back(cd::constructArc(p0, p1, 100.0, true, true)); // TODO changed to inf
+			continue;
+		}
+
+		// if(no junction circle exist)
+		// do this later
+		if(false)
+		{
+
+		}
+
+		// 4-2. find junc circ
+		auto line0 = bisector(p0, p1);
+		auto line1 = bisector(p0 + t0, p1 + t1);
+		Point  cenj (line0, line1);
+		double radj = sqrt((cenj - p0).length2());
+
+		// 4-3. choose junc pt
+		// find best in (i0, i1)
+		Point bestP;
+		if(junctionPolicy == 0)
+		{
+			double bestDist = 1e8;
+			for (int i = i0 + 1; i < i1; i++)
+			{
+				auto& temp = projectedPath[i];
+				auto dv = temp - cenj;
+				auto d_p_cen = (dv).length1();
+				auto d_p_cir = abs(radj - d_p_cen);
+
+				if (d_p_cir < bestDist)
+				{
+					bestDist = d_p_cir;
+					bestP = cenj + radj * (dv) / d_p_cen; // WARNING: possible nan... but only a prob when too dense sampling is used.
+				}
+			}
+
+			if (bestDist == 1e8)
+			{
+				cerr << "Possible Error at junction point selection " << endl;
+				bestP = ((p0 + p1) * 0.5 - cenj).normalize() * radj + cenj;
+			}
+		}
+		else if (junctionPolicy == 1)
+		{
+			auto pmid = (p0 + p1) * 0.5;
+			auto dir = pmid - cenj;
+			dir.normalize();
+			auto bestP = -dir * radj + cenj;
+		}
+		else if (junctionPolicy == 2)
+		{
+			double bestDist = 1e8;
+			for (int i = i0 + 1; i < i1; i++)
+			{
+				auto& temp = projectedPath[i];
+				auto dv = temp - cenj;
+				auto d_p_cen = (dv).length1();
+				auto d_p_cir = abs(radj - d_p_cen);
+
+				if (d_p_cir < bestDist)
+				{
+					bestDist = d_p_cir;
+					bestP = cenj + radj * (dv) / d_p_cen; // WARNING: possible nan... but only a prob when too dense sampling is used.
+				}
+			}
+			
+			if ((bestP - p0).length1() < 1e-2)
+			{
+				bestP = bestP + 0.2 * (p1 - p0);
+				bestP = bestP - cenj;
+				bestP = bestP.normalize();
+				bestP = cenj + radj * bestP;
+			}
+			else if ((bestP - p1).length1() < 1e-2)
+			{
+				bestP = bestP + 0.2 * (p0 - p1);
+				bestP = bestP - cenj;
+				bestP = bestP.normalize();
+				bestP = cenj + radj * bestP;
+			}
+
+			if (bestDist == 1e8)
+			{
+				cerr << "Possible Error at junction point selection " << endl;
+				bestP = ((p0 + p1) * 0.5 - cenj).normalize() * radj + cenj;
+			}
+		}
+		// 4.4 make arc
+		out.push_back(halfBiArc(p0, bestP, t0));
+		Point newTan = out.back().tan1();
+		out.push_back(halfBiArc(bestP, p1, newTan));
+	}
+
+	// dbg_out
+	{
+		cout << COUT(projectedPath.size()) << endl;
+		cout << COUT(intervals.size()) << endl;
+		for (auto a : p)
+		{
+			cout << a << endl;
+		}
+		for (auto a : t)
+		{
+			cout << a << endl;
+		}
+	}
+}
+
+void tessAlignedArcPath();
+
+/*
+TODO
+Def:
+	given two (point, tangent) pair, make biarc
+In:
+	two p-t pair
+	policy to pick junction
+Out:
+	two arcs
+*/
+void makeBiarc(
+	Point& _in_p0, Point& _in_p1,
+	Point& _in_t0, Point& _in_t1,
+	CircularArc& _out_a0, CircularArc& _out_a1,
+	int _in_junction_policy = 0)
+{
+	// 1. find case
+	int Case;
+	{
+		// 1-1. check p0 == p1
+
+		// 1-2. check existence of junction circle
+	}
+}
+
+
+/*
+TODO
+Def: find junction circle center
+Assume:
+	t0, t1 is normalized
+Ret: type
+	0: normal
+	1: r = 0;
+	2: r = inf
+	3: r = nan (such arc does not exist
+*/
+int findBiarcJunctionCenter(
+	Point& _in_p0, Point& _in_p1,
+	Point& _in_t0, Point& _in_t1,
+	Point& _out_junctionCenter)
+{
+	auto& p0 = _in_p0;
+	auto& p1 = _in_p1;
+	auto& t0 = _in_t0;
+	auto& t1 = _in_t1;
+	auto& out = _out_junctionCenter;
+
+	// 1. 
+
+}
+
+/*
+DeF: 
+	find rsv-superset of robot, given it is gccw = true
+Assume:
+	Robot is globally ccw
+*/
+vector<CircularArc>
+getRsvSuperset(vector<CircularArc>& robotToBeRotated, double degree)
+{
+	// 1. rotation to radian
+	double rotation = degree / 180.0 * PI; // rotation is now guaranteed to be "radian"
+
+	// 2. pre-process: if (rotation < 0), pre-rotate robot by rotation & use -rotation
+	vector<CircularArc> temporaryContainerForMinusRotation; // if(rot<0) this container is referenced, do not use this symbol
+	// lambda to use if & ref
+	auto tempLambda = [&robotToBeRotated, &temporaryContainerForMinusRotation, &rotation]() -> vector<CircularArc>&
+	{
+		if (rotation < 0)
+		{
+			for (auto& arc : robotToBeRotated)
+				temporaryContainerForMinusRotation.push_back(cd::rotateArc(arc, (rotation)));
+			rotation = -rotation;
+			return temporaryContainerForMinusRotation;
+		}
+		else return robotToBeRotated;
+	};
+	vector<CircularArc>& robot = tempLambda();
+
+	// 1. init stuff.
+	vector<CircularArc> ret;
+	ret.reserve(robot.size());
+	Point origin(0, 0);
+
+	// 2. for (each arc)
+	for (auto& arc : robot)
+	{
+
+		// 2-0. trivial-case: arc center = origin
+		if (arc.cc().length2() < 1e-16)
+		{
+			//change theta0, theta1
+			auto par = arc.param();
+			if (arc.ccw)
+			{
+				//find theta
+				par.second += rotation;
+
+				// change theta
+				if (par.second >= par.first + 360.0)
+				{
+					par.second = par.first +360.0 - 1e-4; //TODO
+				}
+
+			}
+			else
+			{
+				par.first += rotation;
+
+				if (par.first >= par.second + 360.0)
+				{
+					par.first = par.second + 360.0 - 1e-4;
+				}
+			}
+
+			continue;
+		}
+
+		bool convex = arc.lccw();
+		// arc is convex
+		if (arc.convex)
+		{
+			using namespace cd;
+
+			// 1. get t0, t1
+			auto minmax = cd::getParameterOfArc(arc);
+			auto t0 = minmax.first; // note that t0 > t1 might be possible (with clockwise arc)
+			auto t1 = minmax.second;
+
+			// 2. get tp(theta of center) and tm(theta of -center)
+			auto& center = arc.c.c;
+			auto tp = atan2(center.y(), center.x());
+			//auto tm = tp + PI; // notice that this is between [0, 2pi]
+			auto tm = atan2(-center.y(), -center.x()); // notice that this was not equivalent to "auto tm = tp + PI"
+			//// debug
+			//cout << t0 << " " << tp << " " << tm << " " << t1 << endl;
+
+			// 3. arrange tp,tm so that tp, tm, t1 is on the same direction from t0
+			bool ccw = arc.ccw;
+			{
+				if (ccw)
+				{
+					//theta should increase
+					while (tp < t0) tp += PI2;
+					while (tm < t0) tm += PI2;
+				}
+				else
+				{
+					//theta should decrease
+					while (tp > t0) tp -= PI2;
+					while (tm > t0) tm -= PI2;
+				}
+			}
+
+			// 4. divide into cases
+			/*
+			Possible orderings : 6 case
+			t0 t1 tp tm (or) t0 t1 tm tp
+			t0 tp t1 tm (or) t0 tm t1 tp
+			t0 tp tm t1 (or) t0 tm tp t1
+			*/
+			int count = 0;
+			bool tpFirst = false; //tp is closer to t0 then tm.
+
+			// 4-1. build comparator func ptr: comp(t0,t1) = true (regardless of ccw)
+			decltype(cd::greater)* comp;
+			if (ccw) comp = cd::less;
+			else comp = cd::greater;
+
+			// 4-2. build count & tpFirst
+			if (comp(tp, t1)) count++;
+			if (comp(tm, t1)) count++;
+			if (comp(tp, tm)) tpFirst = true;
+
+			////debug
+			//cout << "grb: convex case division count : " << count << endl;
+			//if (count == 0)
+			//	cout << "after PI2 : " << t0 << " " << tp << " " << tm << " " << t1 << endl;
+
+			// 4-3. build tList;
+			vector<double> tList;
+			{
+				switch (count)
+				{
+				case 0:
+					tList.push_back(t0);
+					tList.push_back(t1);
+					break;
+				case 1:
+					tList.push_back(t0);
+					if (tpFirst)
+						tList.push_back(tp);
+					else
+						tList.push_back(tm);
+					tList.push_back(t1);
+					break;
+				case 2:
+					tList.push_back(t0);
+					if (tpFirst)
+					{
+						tList.push_back(tp);
+						tList.push_back(tm);
+					}
+					else
+					{
+						tList.push_back(tm);
+						tList.push_back(tp);
+					}
+					tList.push_back(t1);
+
+				}
+			}
+
+			// 5. evalueate case
+			{
+				// consider 
+				// 1. ordering of arcs -> this seems to be done later... after trimming. Or a code to find loop?
+				// 2. ccw of new arcs -> taken care of when making swept-point
+				// 3. rotation < 0? -> do it by preprocessing in section -1. -> now rot > 0
+				LOOP double end = t1, start;
+				LOOP double pointSweepRadius;
+				double centerDist = sqrt(arc.c.c.length2());
+
+				LOOP bool CrossSignPositive;
+				LOOP double averageT;
+				//auto _Cross = cross(arc.c.c, arc.x1());
+				//if (_Cross > 0)
+				//	CrossSignPositive = true;
+				//else if (_Cross < 0)
+				//	CrossSignPositive = false;
+				//else
+				//{
+				//	// hard case when arc end point is parallel to center dir
+				//	
+				//	//dbg_out
+				//	cout << "hello" << endl;
+				//}
+
+
+				// points with postive cross will be rotated with "rotation"
+				// this is true since "rotation" is guaranteed to be >0 at this point.
+				// should be flipped after each case label.
+
+				switch (count)
+					// switch not having 'break' is intentional, as labels above are supersets.
+					// e.g.) if (t0 tp tm t1) : 3 arcs from (tm, t1) (tp, tm) (t0, tp) + 2 arcs from (sweep tm) (sweep tp)
+				{
+				case 2:
+
+					// 5-1. build Arc piece from the original "arc" : (t1, tp) or (t1, tm)
+					if (tpFirst) start = tm;
+					else start = tp;
+
+					averageT = (tList[3] + tList[2]) / 2;
+					CrossSignPositive = cross(arc.c.c, Point(cos(averageT), sin(averageT))) > 0;
+
+					if (CrossSignPositive)
+						ret.push_back(rotateArc(constructArc(arc.c.c, arc.c.r, start, end), degree));
+					else
+						ret.push_back(constructArc(arc.c.c, arc.c.r, start, end));
+
+					// 5-2. build arc by sweeping point (tp) or (tm)
+					// check ccw so that it is same with original arc
+					if (tpFirst) pointSweepRadius = arc.c.r - centerDist; // this should be in this order: since for tm case & cd > arc.r => normal dir should be flipped... if cd < arc.r, normal doesnot need to be flipped
+					else pointSweepRadius = centerDist + arc.c.r;
+					if (CrossSignPositive)
+						ret.push_back(constructArc(origin, pointSweepRadius, start + rotation, start));
+					else
+						ret.push_back(constructArc(origin, pointSweepRadius, start, start + rotation));
+
+					// 5-2.5 take care of LOOP_VARIABLES
+					//CrossSignPositive = !CrossSignPositive;
+					end = start;
+
+					//TODO when (sweeping tm) becomes concave...
+				case 1:
+
+					// 5-3.
+					if (tpFirst) start = tp;
+					else start = tm;
+
+
+					averageT = (tList[2] + tList[1]) / 2;
+					CrossSignPositive = cross(arc.c.c, Point(cos(averageT), sin(averageT))) > 0;
+
+					if (CrossSignPositive)
+						ret.push_back(rotateArc(constructArc(arc.c.c, arc.c.r, start, end), degree));
+					else
+						ret.push_back(constructArc(arc.c.c, arc.c.r, start, end));
+
+					//CrossSignPositive = !CrossSignPositive;
+
+					// 5-4.
+					if (tpFirst) pointSweepRadius = centerDist + arc.c.r;
+					else pointSweepRadius = arc.c.r - centerDist; // see 5-2 for this order
+					if (CrossSignPositive)
+						ret.push_back(constructArc(origin, pointSweepRadius, start + rotation, start));
+					else
+						ret.push_back(constructArc(origin, pointSweepRadius, start, start + rotation));
+
+					//dbg_out
+					cout << pointSweepRadius << endl;
+
+					end = start;
+				case 0:
+
+					// 5-5.
+					start = t0;
+
+					averageT = (tList[1] + tList[0]) / 2;
+					CrossSignPositive = cross(arc.c.c, Point(cos(averageT), sin(averageT))) > 0;
+
+					if (CrossSignPositive)
+						ret.push_back(rotateArc(constructArc(arc.c.c, arc.c.r, start, end), degree));
+					else
+						ret.push_back(constructArc(arc.c.c, arc.c.r, start, end));
+					break;
+
+				default:
+					break;
+				}
+			}
+
+		}//end of convex-arc case
+		else
+		{
+			using namespace cd;
+
+			//concave case;
+
+			/*
+			// for now just add all that can be.
+			ret.push_back(arc);
+			ret.push_back(rotateArc(arc, degree));
+
+			auto r0 = sqrt(arc.x0().length2());
+			auto theta0 = atan2(arc.x0().y(), arc.x0().x());
+			ret.push_back(constructArc(origin, r0, theta0, theta0 + rotation));
+			auto r1 = sqrt(arc.x1().length2());
+			auto theta1 = atan2(arc.x1().y(), arc.x1().x());
+			ret.push_back(constructArc(origin, r1, theta1, theta1 + rotation));
+			*/
+
+			// similar to that of convex, just, no added arcs(with origin center), and rotating policies for original arcs has changed.
+
+			// 1. get t0, t1
+			auto minmax = getParameterOfArc(arc);
+			auto t0 = minmax.first; // note that t0 > t1 might be possible (with clockwise arc)
+			auto t1 = minmax.second;
+
+			// 2. get tp(theta of center) and tm(theta of -center)
+			auto& center = arc.c.c;
+			auto tp = atan2(center.y(), center.x());
+			auto tm = tp + PI; // notice that this is between [0, 2pi]
+
+			// 3. arrange tp,tm so that tp, tm, t1 is on the same direction from t0
+			bool ccw = arc.ccw;
+			{
+				if (ccw)
+				{
+					//theta should increase
+					while (tp < t0) tp += PI2;
+					while (tm < t0) tm += PI2;
+				}
+				else
+				{
+					//theta should decrease
+					while (tp > t0) tp -= PI2;
+					while (tm > t0) tm -= PI2;
+				}
+			}
+
+			// 4. divide into cases
+			/*
+			Possible orderings : 6 case
+			t0 t1 tp tm (or) t0 t1 tm tp
+			t0 tp t1 tm (or) t0 tm t1 tp
+			t0 tp tm t1 (or) t0 tm tp t1
+			*/
+			int count = 0;
+			bool tpFirst = false; //tp is closer to t0 then tm.
+
+			// 4-1. build comparator func ptr: comp(t0,t1) = true (regardless of ccw)
+			decltype(cd::greater)* comp;
+			if (ccw) comp = cd::less;
+			else comp = cd::greater;
+
+			// 4-2. build count & tpFirst
+			if (comp(tp, t1)) count++;
+			if (comp(tm, t1)) count++;
+			if (comp(tp, tm)) tpFirst = true;
+
+			// 4-3. build tList;
+			vector<double> tList;
+			{
+				switch (count)
+				{
+				case 0:
+					tList.push_back(t0);
+					tList.push_back(t1);
+					break;
+				case 1:
+					tList.push_back(t0);
+					if (tpFirst)
+						tList.push_back(tp);
+					else
+						tList.push_back(tm);
+					tList.push_back(t1);
+					break;
+				case 2:
+					tList.push_back(t0);
+					if (tpFirst)
+					{
+						tList.push_back(tp);
+						tList.push_back(tm);
+					}
+					else
+					{
+						tList.push_back(tm);
+						tList.push_back(tp);
+					}
+					tList.push_back(t1);
+
+				}
+			}
+
+			// 5. evalueate case
+			{
+				//similar to 
+				LOOP double end = t1, start;
+				LOOP double pointSweepRadius;
+				double centerDist = sqrt(arc.c.c.length2());
+
+				LOOP bool CrossSignPositive;
+				LOOP double averageT;
+
+
+				// points with postive cross will be rotated with "rotation"
+				// this is true since "rotation" is guaranteed to be >0 at this point.
+				// should be flipped after each case label.
+
+				switch (count)
+					// switch not having 'break' is intentional, as labels above are supersets.
+					// e.g.) if (t0 tp tm t1) : 3 arcs from (tm, t1) (tp, tm) (t0, tp) + 2 arcs from (sweep tm) (sweep tp)
+				{
+				case 2:
+
+					// 5-1. build Arc piece from the original "arc" : (t1, tp) or (t1, tm)
+					if (tpFirst) start = tm;
+					else start = tp;
+
+					averageT = (tList[3] + tList[2]) / 2;
+					CrossSignPositive = cross(arc.c.c, Point(cos(averageT), sin(averageT))) > 0;
+
+					if (!CrossSignPositive)
+						ret.push_back(rotateArc(constructArc(arc.c.c, arc.c.r, start, end), degree));
+					else
+						ret.push_back(constructArc(arc.c.c, arc.c.r, start, end));
+					(ret.end() - 1)->convex = false;
+
+
+					end = start;
+				case 1:
+
+					// 5-3.
+					if (tpFirst) start = tp;
+					else start = tm;
+
+
+					averageT = (tList[2] + tList[1]) / 2;
+					CrossSignPositive = cross(arc.c.c, Point(cos(averageT), sin(averageT))) > 0;
+
+					if (!CrossSignPositive)
+						ret.push_back(rotateArc(constructArc(arc.c.c, arc.c.r, start, end), degree));
+					else
+						ret.push_back(constructArc(arc.c.c, arc.c.r, start, end));
+					(ret.end() - 1)->convex = false;
+
+					end = start;
+				case 0:
+
+					// 5-5.
+					start = t0;
+
+					averageT = (tList[1] + tList[0]) / 2;
+					CrossSignPositive = cross(arc.c.c, Point(cos(averageT), sin(averageT))) > 0;
+
+					if (!CrossSignPositive)
+						ret.push_back(rotateArc(constructArc(arc.c.c, arc.c.r, start, end), degree));
+					else
+						ret.push_back(constructArc(arc.c.c, arc.c.r, start, end));
+					(ret.end() - 1)->convex = false;
+
+					break;
+				default:
+					break;
+				}
+			}
+
+		}
+	}
+
+	return ret;
+}
+
+
+/*
+DeF: given a arcAlignedPath and robot, find its sweep volume(superset)
+*/
+void arcAlignedPathSweepVolume(vector<CircularArc>& _in_path, vector<CircularArc>& _in_robot, vector<CircularArc>& _out)
+{
+	auto& p = _in_path;
+	auto& r = _in_robot;
+	auto& o = _out;
+
+	for (auto& a : p)
+	{
+		// 
+		auto temp = r;
+
+		// 0.
+		//auto par = a.param();
+		//
+		//double t0, t1, dt;
+		//if (par.first < par.second)
+		//{
+		//	t0 = par.first;
+		//	t1 = par.second;
+		//}
+		//else
+		//{
+		//	t0 = par.second;
+		//	t1 = par.first;
+		//}
+		//dt = t1 - t0;
+
+		auto t = atan2(robotForward.y(), robotForward.x());
+		auto tan0 = a.tan0();
+		auto tan1 = a.tan1();
+		auto t0 = atan2(tan0.y(), tan0.x()) - t; // rot needed to
+		auto t1 = atan2(tan1.y(), tan1.x()) - t; // rot needed to
+
+		if (a.ccw)
+		{
+			while (t1 < t0)
+				t1 += PI2;
+		}
+		else
+		{
+			while (t0 < t1)
+				t0 += PI2;
+		}
+
+		//if (t0 > t1)
+		//{
+		//	auto t = t0;
+		//	t0 = t1;
+		//	t1 = t;
+		//}
+		
+
+		// 1. rotate temp;
+		vector<CircularArc> temp2;
+		{
+			for (auto& b : temp)
+			{
+				temp2.push_back(cd::rotateArc(b, t0 * 180 / PI));
+			}
+		}
+
+		// 2. translate temp
+		vector<CircularArc> temp3;
+		{
+			for (auto& b : temp2)
+			{
+				auto trans = a.x0() - a.cc();
+				temp3.push_back(cd::translateArc(b, trans));
+			}
+		}
+
+		// 3. find RSV
+		//vector<CircularArc> temp4 = cd::getRotationSuperSet(temp3, (t1-t0)/ PI * 180.0);
+		vector<CircularArc> temp4 = getRsvSuperset(temp3, (t1 - t0) / PI * 180.0);
+
+
+		// 4. translate RSV
+		{
+			for (auto& b : temp4)
+			{
+				o.push_back(cd::translateArc(b, a.cc()));
+			}
+		}
+	}
+
+}
 
 namespace ms {
 
@@ -1598,7 +2458,7 @@ namespace ms {
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	//
-	//
+	//													~~~~renderMinkVoronoi~~~~
 	//
 	//
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -2210,24 +3070,81 @@ namespace ms {
 		glutMainLoop();
 	}
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	//
-	//
-	//
-	//
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	//																																//
+	//													~~~~renderPath~~~~															//
+	//																																//
+	//																																//
+	//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
 	namespace renderPathGlobal
 	{
+		string Manual = R"del(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Manual ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+mouse left: pick robot pos
+mouse right: cancel
+mouse wheel: pick robot rot
+
+1: draw path GraphSearch 
+2: draw path mc + optimization
+3: draw path arc-aligned-arc 
+4: draw path arc-aligned-tess 
+5: draw start/end 
+6: draw CSO 
+7: draw robot (at current config)
+8: draw robot sweep volume (sampled)
+9: ??
+0: change mode
+=: inject start/goal (TODO)
+
+~: draw obsacles
+!: 
+@: 
+#:
+$: dist map
+%: ground-truth geometry calc
+^: ground-truth geometry render
+&: draw gs_edge single_slice
+*: draw gs_edge inter_slice
+_: inject start/end
+
+f:
+g:
+h:
+
+z: draw dist query (dist field)
+
+wasd: move
+
+)del";
+#pragma region key_alias
+		char
+			keyAlias_drawCSO			= '6',
+			keyAlias_drawPathOpt		= '2',
+			keyAlias_drawPathGraphSearch= '1',
+			keyAlias_drawStartEnd		= '5',
+			keyAlias_drawPathAAarc		= '3',
+			keyAlias_drawPathAAtess		= '4',
+			keyAlias_drawRobotCurrent	= '7',
+			keyAlias_drawRobotSweep		= '8',
+			
+			keyAlias_changePathMode		= '0';
+#pragma endregion
+
+		// nav rp global
+
+		// paths
+		vector<Vertex> pathGraphSearch; // path from graph-search
+		vector<Vertex> mcPath; // tessellated max-clr-path
+
 		// path info
 		double* pathPtr;
 		int pathSize;
 		int pathIdx = 0;
 		int pathType = 0;
 
-		vector<Vertex> pathGraphSearch;
-		vector<Vertex> mcPath;
+		vector<Vertex>* tessPathPtr = nullptr;
 
 		// I/O
 		int clickStatus = 0;
@@ -2249,6 +3166,30 @@ namespace ms {
 		vector<double> arcPathRot;
 		vector<Vertex> arcPathTess;
 
+		//// sweep
+		//vector<CircularArc> arcAligned;
+		//vector<Vertex> arcAlignedTess;
+		vector<CircularArc> sweep;
+
+		// distance field
+		dfCalc distField;
+		vector<CircularArc> distFieldArcs;
+		vector<unsigned char> dfImage, dfImage2, dfImage3;
+		vector<int> arcIdxToLoopIdx;
+
+		// ground truth
+		constexpr int gtSamples = 3600;
+		bool gtBuilt = false;
+		decltype(ms::Model_Result)				gtMink[gtSamples];
+		decltype(ms::ModelInfo_Boundary)		gtMink2[gtSamples];
+		decltype(ms::InteriorDisks_Convolution) gtMink3[gtSamples];
+		VR_IN									gtVrin[gtSamples];
+		vector<v_edge>							gtVor[gtSamples];
+		cd::pointCollisionTester				gtTester[gtSamples];
+
+		int n_biarc = 15; // PG:5 // maze :13
+
+#pragma region funcs
 		/*
 		Def:
 		
@@ -2437,6 +3378,487 @@ namespace ms {
 
 
 		}
+
+		
+		//auto mouseFunc = [](int button, int action, int x, int y) ->void
+		void mouseFunc(int button, int action, int x, int y)
+		{
+
+			if (button == 3)
+				clickedZ += 7.5;
+
+			if (button == 4)
+				clickedZ -= 7.5;
+
+			if (button == GLUT_LEFT_BUTTON && action == GLUT_DOWN)
+			{
+				clickNow = true;
+			}
+
+			if (button == GLUT_LEFT_BUTTON && action == GLUT_UP)
+			{
+				clickNow = false;
+
+				// 1. get clicked point
+				auto fx = float(x - wd / 2) / (wd / 2);
+				auto fy = float(-y + ht / 2) / (ht / 2);
+				fx = zoom * fx + tx;
+				fy = zoom * fy + ty;
+				clickedPoint.x() = fx;
+				clickedPoint.y() = fy;
+
+				// 2.
+				switch (clickStatus)
+				{
+				case 0:
+					// set start point
+					sx = clickedPoint.x();
+					sy = clickedPoint.y();
+					sz = clickedZ;
+					clickStatus = 1;
+					cout << "Start point : " << sx << ", " << sy << ", " << sz << endl;
+					break;
+
+				case 1:
+					// set end point
+					ex = clickedPoint.x();
+					ey = clickedPoint.y();
+					ez = clickedZ;
+					clickStatus = 2;
+					cout << "End point : " << ex << ", " << ey << ", " << ez << endl;
+					break;
+
+				case 2:
+				{
+					// Alias
+					std::vector<std::vector<v_edge>>&
+						v_edges = planning::output_to_file::v_edges;
+					int szIdx = sz / 360.0 * ms::numofframe; while (szIdx < 0) szIdx += ms::numofframe; szIdx %= ms::numofframe;
+					int ezIdx = ez / 360.0 * ms::numofframe; while (ezIdx < 0) ezIdx += ms::numofframe; ezIdx %= ms::numofframe;
+					{
+						//just to make 64-bits of z value all same with that of a-star graph
+						double dz = 360.0 / v_edges.size();
+
+						sz = 0.0;
+						ez = 0.0;
+						for (int i = 0; i < szIdx; i++)
+							sz += dz;
+						for (int i = 0; i < ezIdx; i++)
+							ez += dz;
+					}
+
+					// i. find closest v_edge
+
+					// i-1. start
+					double closestDist = 1E8;
+					Point closestPoint;
+					Point temp(sx, sy);
+
+					// for (All ve)
+					for (int i = 0; i < v_edges[szIdx].size(); i++)
+					{
+						auto& ve = v_edges[szIdx][i];
+						auto& p = ve.v0;
+						auto  d = sqrt((temp - p).length2());
+						if (d < closestDist && d < ve.clr0())
+						{
+							closestDist = d;
+							closestPoint = p;
+						}
+					}
+					if (closestDist == 1E8)
+					{
+						cerr << "Invalid Input to Astar" << endl;
+						clickStatus = 0;
+						break;
+					}
+					ver0 = Vertex(closestPoint.x(), closestPoint.y(), sz);
+
+					// i-2. end point
+					closestDist = 1E8;
+					temp = Point(ex, ey);
+					// for (All ve)
+					for (int i = 0; i < v_edges[ezIdx].size(); i++)
+					{
+						auto& ve = v_edges[ezIdx][i];
+						auto& p = ve.v0;
+						auto  d = sqrt((temp - p).length2());
+						if (d < closestDist && d < ve.clr0())
+						{
+							closestDist = d;
+							closestPoint = p;
+						}
+					}
+					if (closestDist == 1E8)
+					{
+						cerr << "Invalid Input to Astar" << endl;
+						clickStatus = 0;
+						break;
+					}
+					ver1 = Vertex(closestPoint.x(), closestPoint.y(), ez);
+
+
+					// ii. run a-star
+					std::vector<Vertex> path;
+					vector<xyt> dijkresult;
+					std::vector<double> vertClr;
+					std::vector<gs::EdgeType> ets;
+					bool useDijk = true;
+					bool useDijk2 = true;
+					if (useDijk)
+					{
+						if (useDijk2)
+						{
+							xyt
+								s(sx, sy, sz),
+								e(ex, ey, ez);
+
+							if (gs::dijk.searchGraph2(s, e, dijkresult, vertClr, ets, robotForward))
+							{
+								for (auto v : dijkresult)
+								{
+									Vertex temp;
+									temp.x = v.x();
+									temp.y = v.y();
+									temp.z = v.t();
+
+									path.push_back(temp);
+								}
+							}
+							else
+							{
+								cout << "Dijkstra: no path" << endl;
+								auto t0 = std::chrono::high_resolution_clock::now();
+								auto t1 = t0;
+								auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+								while (ms < 1000.0)
+								{
+									t1 = std::chrono::high_resolution_clock::now();
+									ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+								}
+							}
+						}
+						else
+						{
+							vector<int> vertIdxList;
+							xyt
+								s(sx, sy, sz),
+								e(ex, ey, ez);
+
+							// if(path exists)
+							if (gs::dijk.searchGraph(s, e, vertIdxList))
+							{
+								Vertex sv(sx, sy, sz);
+								Vertex ev(ex, ey, ez);
+
+								path.push_back(sv);
+								for (auto i : vertIdxList)
+								{
+									auto& v = gs::dijk.getVert()[i];
+
+									Vertex temp;
+									temp.x = v.x();
+									temp.y = v.y();
+									temp.z = v.t();
+									path.push_back(temp);
+								}
+								path.push_back(ev);
+
+								// debug out
+								int i = 0;
+								for (auto& p : path)
+								{
+									cout << "dijk path: " << i << ":" << p.x << " , " << p.y << " , " << p.z << endl;
+									i++;
+								}
+
+							}
+							else
+							{
+								cout << "Dijkstra: no path" << endl;
+								auto t0 = std::chrono::high_resolution_clock::now();
+								auto t1 = t0;
+								auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+								while (ms < 1000.0)
+								{
+									t1 = std::chrono::high_resolution_clock::now();
+									ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+								}
+							}
+						}
+					}
+					else
+						path = invoke_AStar(theGr, vecVertices, mapLookup, ver0, ver1);
+
+					if (false)
+					{
+						// path : approx biarc
+						arcPath.clear();
+						arcPathRot.clear();
+						refinePathBiarc(path, 10, arcPath, arcPathRot);
+						//dbg_out
+						{
+							for (auto a : arcPath)
+								cout << "AP : " << a.x0() << "   " << a.x1() << endl;
+
+							for (auto a : arcPath)
+								cout << "AP norm : " << a.n0() << "   " << a.n1() << endl;
+						}
+
+						// path : tess
+						arcPathTess.clear();
+						tessPathBiarc(arcPath, arcPathRot, 0.04, arcPathTess);
+						pathSize = arcPathTess.size();
+						pathIdx = 0;
+
+						// path : 
+						//tessPathAlignTheta(arcPathTess, graphSearch::testers2, Point(0, 1));
+					}
+					if (true)
+					{
+						for (int i = 0; i < ets.size(); i++)
+						{
+							cout
+								<< "edge " << i << " : " << gs::et2str(ets[i]) << endl
+								<< "  vert0 : " << path[i].x << ", " << path[i].y << ", " << path[i].z << ", " << vertClr[i] << endl
+								<< "  vert1 : " << path[i + 1].x << ", " << path[i + 1].y << ", " << path[i + 1].z << ", " << vertClr[i + 1] << endl;
+						}
+					}
+
+					// done dijkstra here.
+
+					// nav graph
+					// nav biarc
+					// nav pathTess
+					// nav tess
+
+					// save mcPath
+					pathGraphSearch = path;
+
+					auto t0 = std::chrono::high_resolution_clock::now();
+
+					int doOptimizePath = 0;
+					vector<xyt> optPath;
+					vector<Vertex> path2; // content is same with optPath
+					{
+						if (doOptimizePath == 0)
+						{
+							mcPath.clear();
+							tessPathClear(pathGraphSearch, 0.01, mcPath);
+						}
+						else if (doOptimizePath == 1)
+						{
+							optimizePath(dijkresult, vertClr, ets, optPath);
+
+							for (auto v : optPath)
+							{
+								Vertex temp;
+								temp.x = v.x();
+								temp.y = v.y();
+								temp.z = v.t();
+
+								path2.push_back(temp);
+							}
+
+							mcPath.clear(); //drawing path
+							tessPathClear(path2, 0.02, mcPath);
+						}
+					}
+					pathSize = mcPath.size();
+					pathType = 0;
+					pathIdx = 0;
+
+					int approx_biarc = 3;
+					{
+						// 1 not used 
+						// 2 optimize than biarcApprox(doOptimizePath != 1)  (start from path2)
+						// 3 directly approx voronoi graph path (+rotation is aligned) (st
+						if (approx_biarc == 1)
+						{
+							refinePathBiarc(mcPath, 20, arcPath, arcPathRot);
+
+							// change theta to arc tangent dir;
+							for (int i = 1; i < arcPath.size(); i++)
+							{
+								auto curTan = robotForward.rotate(arcPathRot[i] / 180.0 * PI);
+								auto arcTan = arcPath[i].tan0();
+								auto newTheta = atan2(arcTan.y(), arcTan.x()) - atan2(robotForward.y(), robotForward.x());
+
+								// plus ? minus?
+								if (arcTan * curTan < 0)
+									newTheta = -newTheta;
+
+								while (newTheta < 0)
+									newTheta += PI2;
+								while (newTheta > PI2)
+									newTheta -= PI2;
+
+								newTheta = newTheta * 180.0 / PI;
+								arcPathRot[i] = newTheta;
+							}
+
+							tessPathBiarc(arcPath, arcPathRot, 0.02, arcPathTess);
+						}
+						else if (approx_biarc == 2)
+						{
+							vector<Vertex> path3;
+							tessPathClear(path2, 0.001, path3);
+
+							// call
+							makeAlignedArcPath(path3, 20, arcPath);
+							cout << COUT(mcPath.size()) << endl;
+							cout << COUT(path3.size()) << endl;
+							cout << COUT(arcPath.size()) << endl;
+
+							// align rotation
+							vector<double> rot(arcPath.size() + 1);
+							{
+								auto theta0 = atan2(robotForward.y(), robotForward.x());
+								for (int i = 0; i < arcPath.size(); i++)
+								{
+									auto tan = arcPath[i].tan0();
+									auto theta1 = atan2(tan.y(), tan.x());
+
+									rot[i] = theta1 - theta0;
+
+									if (rot[i] < 0) rot[i] += PI2;
+									rot[i] = rot[i] * 180 / PI;
+								}
+								auto tan = arcPath.back().tan1();
+								rot[arcPath.size()] = atan2(tan.y(), tan.x()) - theta0;
+								if (rot[arcPath.size() < 0]) rot[arcPath.size()] += PI2;
+								rot.back() = rot.back() * 180 / PI;
+							}
+
+							tessPathBiarc(arcPath, rot, 0.02, arcPathTess);
+
+							arcAlignedPathSweepVolume(arcPath, ms::Model_vca[0], sweep);
+						}
+						else if (approx_biarc == 3)
+						{
+							
+							double tessLen0 = 0.001;
+
+							// 1. tess voronoi path
+							vector<Vertex> temp;
+							tessPathClear(pathGraphSearch, tessLen0, temp);
+
+							// 2. project it and biarc approx
+							arcPath.clear();
+							makeAlignedArcPath(temp, n_biarc, arcPath);
+
+							// 3. get argAligned-rotation
+							vector<double> rot(arcPath.size() + 1);
+							{
+								auto theta0 = atan2(robotForward.y(), robotForward.x());
+								for (int i = 0; i < arcPath.size(); i++)
+								{
+									auto tan = arcPath[i].tan0();
+									auto theta1 = atan2(tan.y(), tan.x());
+
+									rot[i] = theta1 - theta0;
+
+									if (rot[i] < 0) rot[i] += PI2;
+									rot[i] = rot[i] * 180 / PI;
+								}
+								auto tan = arcPath.back().tan1();
+								rot[arcPath.size()] = atan2(tan.y(), tan.x()) - theta0;
+								if (rot[arcPath.size() < 0]) rot[arcPath.size()] += PI2;
+								rot.back() = rot.back() * 180 / PI;
+							}
+
+							// 4. tess path
+							arcPathTess.clear();
+							tessPathBiarc(arcPath, rot, 0.01, arcPathTess);
+						}
+					}
+
+					auto t1 = std::chrono::high_resolution_clock::now();
+					auto d0 = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+					std::cout << "!INFO: path change Time : " << d0 << "ms" << std::endl;
+					{
+						//// iii. do refinement.
+						//vector<Vertex> ref;
+						//refinePath(path, ref);
+						//
+						//bool refiningDone = true;
+						//if(!refiningDone)
+						//{
+						//	//temp
+						//	if (mcPath.size() == 0)
+						//	{
+						//
+						//	}
+						//	else
+						//	{
+						//		delete[] pathPtr;
+						//	}
+						//
+						//	pathSize = path.size() + 2;
+						//	pathPtr = new double[(path.size()+2) * 3];
+						//	pathIdx = 0;
+						//
+						//	for (int i = 0; i < path.size(); i++)
+						//	{
+						//		pathPtr[3 * i + 3] = path[i].x;
+						//		pathPtr[3 * i + 4] = path[i].y;
+						//		pathPtr[3 * i + 5] = path[i].z;
+						//	}
+						//
+						//	pathPtr[0] = sx;
+						//	pathPtr[1] = sy;
+						//	pathPtr[2] = sz;
+						//	pathPtr[(path.size() + 1) * 3 + 0] = ex;
+						//	pathPtr[(path.size() + 1) * 3 + 1] = ey;
+						//	pathPtr[(path.size() + 1) * 3 + 2] = ez;
+						//
+						//
+						//}
+						//else
+						//{
+						//	//temp
+						//	if (mcPath.size() == 0)
+						//	{
+						//
+						//	}
+						//	else
+						//	{
+						//		delete[] pathPtr;
+						//	}
+						//
+						//	pathSize = ref.size();
+						//	pathPtr = new double[(pathSize) * 3];
+						//	pathIdx = 0;
+						//
+						//	for (int i = 0; i < pathSize; i++)
+						//	{
+						//		pathPtr[3 * i + 0] = ref[i].x;
+						//		pathPtr[3 * i + 1] = ref[i].y;
+						//		pathPtr[3 * i + 2] = ref[i].z;
+						//	}
+						//
+						//	mcPath = path;
+						//}
+					}
+
+					clickStatus = 0;
+					break;
+				}
+				default:
+					break;
+
+				}
+
+			}
+
+			if (button == GLUT_RIGHT_BUTTON)
+			{
+				clickStatus = 0;
+			}
+
+			glutPostRedisplay();
+		};
+#pragma endregion
 	}
 
 	void renderPath(
@@ -2448,13 +3870,14 @@ namespace ms {
 		using namespace renderPathGlobal;
 
 		zoom = 1.0;
-		wd = ht = 600;
+		wd = ht = 1000;
 
 		pathPtr = &(path[0]);
 		pathSize = (path.size() / 3);
 
 		auto reshapeFunc = [](GLint w, GLint h) ->void
 		{
+			return;
 			double ratioWH = double(wd) / ht;
 			if (w < h * ratioWH) {
 				wd = w;
@@ -2488,7 +3911,7 @@ namespace ms {
 			lastH = planning::keyboardflag['h'];
 
 
-			if (pathIdx >= pathSize) pathIdx = 0;
+			if (pathIdx >= pathSize) pathIdx = pathSize-1;
 			if (pathIdx < 0) pathIdx = pathSize - 1;
 
 			cout << "Current PathIdx : " << pathIdx << endl;
@@ -2500,6 +3923,16 @@ namespace ms {
 
 			glutPostRedisplay();
 		};
+		auto motionFunc = [](int x, int y)
+		{
+			auto fx = float(x - wd / 2) / (wd / 2);
+			auto fy = float(-y + ht / 2) / (ht / 2);
+			fx = zoom * fx + tx;
+			fy = zoom * fy + ty;
+			clickedPoint.x() = fx;
+			clickedPoint.y() = fy;
+		};
+
 		auto displayFunc = []()
 		{
 			glClearColor(1.0, 1.0, 1.0, 1.0);
@@ -2516,10 +3949,123 @@ namespace ms {
 			auto sceneIdx = 7;
 			auto robotIdx = 1;
 
+			if (tessPathPtr == nullptr)
+				tessPathPtr = &mcPath;
+
+			// nav injection
+			// -1. inject start/goal
+			if (Key3('_'))
+			{
+				cout << "start/goal type: " << endl;
+				int option;
+				cin >> option;
+				switch (option)
+				{
+				case 1: // S shape
+					////// Start point : -0.804, -0.168, -225
+					////// End point : 0.346, 0.512, -225
+					//Start Point : 0.468, 0.532, 135, 0.298985
+					//End point : -0.804, -0.202, -225
+					n_biarc = 5;
+					sx = -0.804;
+					sy = -0.168;
+					sz = -45;
+					ex = 0.346;
+					ey = 0.512;
+					ez = -45;
+					clickStatus = 2;
+					mouseFunc(GLUT_LEFT_BUTTON, GLUT_UP, 1, 1);
+					break;
+				case 2: // PG
+					////// str  -0.766, 0.424, 270
+					////// end  0.576, -0.552, 270
+					// str	vert0 : -0.768, 0.428, 270
+					// End point : 0.576, -0.52, -120
+
+					n_biarc = 5;
+					sx = -0.766;
+					sy = 0.424;
+					sz = 270;
+					ex = 0.576;
+					ey = -0.522;
+					ez = 270;
+					clickStatus = 2;
+					mouseFunc(GLUT_LEFT_BUTTON, GLUT_UP, 1, 1);
+					break;
+				case 3: // ?
+					// str -0.426, -0.69, 315
+					// end 0.354, 0.21, 225
+					n_biarc = 10;
+					sx = -0.426;
+					sy = -0.69;
+					sz = 315;
+					ex = 0.354;
+					ey = 0.21;
+					ez = 225;
+					clickStatus = 2;
+					mouseFunc(GLUT_LEFT_BUTTON, GLUT_UP, 1, 1);
+					break;
+				case 4: // maze 1
+					// start -0.608, -0.696, 315, 0.0553669
+					// end  0.53, 0.216, 315, 0.0914297
+					n_biarc = 20;
+					sx = -0.608;
+					sy = -0.696;
+					sz = 315;
+					ex = 0.53;
+					ey = 0.216;
+					ez = 315;
+					clickStatus = 2;
+					mouseFunc(GLUT_LEFT_BUTTON, GLUT_UP, 1, 1);
+					break;
+				case 5:
+					//start point: -0.674, -0.694, 315
+					//End point : 0.666, -0.66, -135
+					n_biarc = 22;
+					sx = -0.674;
+					sy = -0.694;
+					sz = 315;
+					ex = 0.666;
+					ey = -0.66;
+					ez = -135;
+					clickStatus = 2;
+					mouseFunc(GLUT_LEFT_BUTTON, GLUT_UP, 1, 1);
+					break;
+				default:
+					break;
+				}
+			}
+
+			// 0. draw distance map
+			if (Key('$'))
+			{
+				static int idx = 0;
+				if (Key3('{'))
+					idx--;
+				if (Key3('}'))
+					idx++;
+
+				if (idx < 0)
+					idx = 0;
+				if (idx >= 3)
+					idx =  3 - 1;
+
+				if(idx == 0)
+					distField.drawDistanceMap(dfImage);
+				else if(idx == 1)
+					distField.drawDistanceMap(dfImage2); 
+				else if (idx == 2)
+					distField.drawDistanceMap(dfImage3);
+				glClear(GL_DEPTH_BUFFER_BIT);
+			}
+
 			// 1. draw scene
-			auto& scene = Models_Approx[sceneIdx];
-			for (auto& as : scene)
-				as.draw();
+			if(!Key('~'))
+			{
+				auto& scene = Models_Approx[sceneIdx];
+				for (auto& as : scene)
+					as.draw();
+			}
 
 			//// 2. draw robot
 			//auto& robot = Models_Approx[robotIdx];
@@ -2536,7 +4082,7 @@ namespace ms {
 			//glEnd();
 
 			// draw CSO
-			if (planning::keyboardflag['1'])
+			if (Key(keyAlias_drawCSO))
 			{
 				//// 3. draw path
 				//glBegin(GL_LINE_STRIP);
@@ -2590,9 +4136,10 @@ namespace ms {
 				//}
 
 				// draw CSO
-				if(pathIdx < mcPath.size())
+				auto& curPath = *tessPathPtr;
+				if(pathIdx < curPath.size())
 				{
-					int sliceNo = mcPath[pathIdx].z / 360.0 * ms::numofframe;
+					int sliceNo = curPath[pathIdx].z / 360.0 * ms::numofframe;
 					while (sliceNo >= ms::numofframe)
 						sliceNo -= ms::numofframe;
 					while (sliceNo < 0)
@@ -2634,6 +4181,15 @@ namespace ms {
 				}
 			}
 
+			if (Key('!'))
+			{
+				glColor3f(0, 0, 0);
+				{
+					for (auto& arc : sweep)
+						arc.draw2();
+				}
+			}
+
 			// 5. draw robot when robot is being pressed;
 			if (clickNow)
 				if (clickStatus == 0 || clickStatus == 1)
@@ -2662,7 +4218,7 @@ namespace ms {
 					}
 
 			// 6. draw mcPath
-			if (planning::keyboardflag['2'])
+			if (Key(keyAlias_drawPathOpt))
 			{
 				glColor3f(0.3, 0.3, 1.0);
 				{
@@ -2674,10 +4230,23 @@ namespace ms {
 					glEnd();
 				}
 			}
+			
+			// ?. draw arcPath-tess
+			if (Key(keyAlias_drawPathAAtess))
+			{
+				glColor3f(0.3, 0.3, 1.0);
+				{
+					glBegin(GL_LINE_STRIP);
+					for (auto& v : arcPathTess)
+					{
+						glVertex2d(v.x, v.y);
+					}
+					glEnd();
+				}
+			}
 
 			// 7. draw optimized path  //changed from://draw arcPath
-			glColor3f(0, 0, 0);
-			if (planning::keyboardflag['3'])
+			if (Key(keyAlias_drawPathGraphSearch))
 				//{
 				//	for (auto& arc : arcPath)
 				//		arc.draw2();
@@ -2691,57 +4260,75 @@ namespace ms {
 			}
 
 			// 8. robot following path
-			glColor3f(0, 0, 0);
-			if(pathType == 1)
-			if(pathIdx < arcPathTess.size())
+			if(!Key(keyAlias_drawRobotCurrent))
 			{
-				auto& robot = Models_Approx[robotIdx];
-				Point translation(arcPathTess[pathIdx].x, arcPathTess[pathIdx].y);
-				double rotationDegree = arcPathTess[pathIdx].z;
-				for (auto& as : robot)
-					for (auto& arc : as.Arcs)
-					{
-						cd::translateArc(cd::rotateArc(arc, rotationDegree + 180.0), translation).draw();
-					}
-				glPointSize(4.0f);
-				glBegin(GL_POINTS);
-				glVertex3d(translation.P[0], translation.P[1], -0.5);
-				glEnd();
-			}
-			if (pathType == 0 && (pathIdx >= 0 && pathIdx < mcPath.size()))
-			{
-				auto& robot = Models_Approx[robotIdx];
-				Point translation(mcPath[pathIdx].x, mcPath[pathIdx].y);
-				double rotationDegree = mcPath[pathIdx].z;
-				for (auto& as : robot)
-					for (auto& arc : as.Arcs)
-					{
-						cd::translateArc(cd::rotateArc(arc, rotationDegree + 180.0), translation).draw();
-					}
-				glPointSize(4.0f);
-				glBegin(GL_POINTS);
-				glVertex3d(translation.P[0], translation.P[1], -0.5);
-				glEnd();
-
-
-				// hyp
-				bool doFilling = true;
-				if (doFilling)
+				glColor3f(0, 0, 0);
+				if(pathType == 1)
+				if(pathIdx < arcPathTess.size())
 				{
-					// find disks
-					vector<Circle> disks;
-					findInteriorDisks2(ms::Model_vca[robotIdx], 0.01, disks); 
-					for (auto c : disks)
+					auto& robot = Models_Approx[robotIdx];
+					Point translation(arcPathTess[pathIdx].x, arcPathTess[pathIdx].y);
+					double rotationDegree = arcPathTess[pathIdx].z;
+					for (auto& as : robot)
+						for (auto& arc : as.Arcs)
+						{
+							cd::translateArc(cd::rotateArc(arc, rotationDegree + 180.0), translation).draw();
+						}
+					glPointSize(4.0f);
+					glBegin(GL_POINTS);
+					glVertex3d(translation.P[0], translation.P[1], -0.5);
+					glEnd();
+
+					// hyp
+					bool doFilling = true;
+					if (doFilling)
 					{
-						c.c = c.c.rotate((rotationDegree + 180.0) / 180.0 * PI);
-						c.c = c.c + translation;
-						c.draw();
+						// find disks
+						vector<Circle> disks;
+						findInteriorDisks2(ms::Model_vca[robotIdx], 0.01, disks);
+						for (auto c : disks)
+						{
+							c.c = c.c.rotate((rotationDegree + 180.0) / 180.0 * PI);
+							c.c = c.c + translation;
+							c.draw();
+						}
+					}
+				}
+				if (pathType == 0 && (pathIdx >= 0 && pathIdx < mcPath.size()))
+				{
+					auto& robot = Models_Approx[robotIdx];
+					Point translation(mcPath[pathIdx].x, mcPath[pathIdx].y);
+					double rotationDegree = mcPath[pathIdx].z;
+					for (auto& as : robot)
+						for (auto& arc : as.Arcs)
+						{
+							cd::translateArc(cd::rotateArc(arc, rotationDegree + 180.0), translation).draw();
+						}
+					glPointSize(4.0f);
+					glBegin(GL_POINTS);
+					glVertex3d(translation.P[0], translation.P[1], -0.5);
+					glEnd();
+
+
+					// hyp
+					bool doFilling = true;
+					if (doFilling)
+					{
+						// find disks
+						vector<Circle> disks;
+						findInteriorDisks2(ms::Model_vca[robotIdx], 0.01, disks); 
+						for (auto c : disks)
+						{
+							c.c = c.c.rotate((rotationDegree + 180.0) / 180.0 * PI);
+							c.c = c.c + translation;
+							c.draw();
+						}
 					}
 				}
 			}
-
+			
 			// 9. draw starting/end point
-			if (!planning::keyboardflag['4'] && mcPath.size() > 0)
+			if (!Key(keyAlias_drawStartEnd) && mcPath.size() > 0)
 			{
 				// hyp
 				bool doFilling = true;
@@ -2810,27 +4397,15 @@ namespace ms {
 				}
 			}
 
-			// 
-			if (Key('5'))
+			// draw arcPath
+			if (Key(keyAlias_drawPathAAarc))
 			{
-				using namespace gs;
-				// draw all edges in graph
-				auto& e = dijk.getEdge();
-				auto& v = dijk.getVert();
-
-				glBegin(GL_LINES);
-				for (auto& e0 : e)
-				{
-					auto& v0 = v[e0.first];
-					auto& v1 = v[e0.second];
-					glVertex2d(v0.x(), v0.y());
-					glVertex2d(v1.x(), v1.y());
-				}
-				glEnd();
+				for (auto& a : arcPath)
+					a.draw2();
 			}
 
 			// if(6) draw single-slice-edge
-			if (Key('6'))
+			if (Key('&'))
 			{
 				using namespace gs;
 				for (int sn = 0; sn < dijk._vMat.size(); sn++)
@@ -2851,7 +4426,7 @@ namespace ms {
 			}
 
 			// if(7) draw interslice edge
-			if (Key('7'))
+			if (Key('*'))
 			{
 				using namespace gs;
 				for (int sn = 0; sn < dijk._vMat.size(); sn++)
@@ -2899,18 +4474,30 @@ namespace ms {
 				}
 			}
 
-			// draw robot's sweep volume
-			if (Key('8'))
+			// draw robot's sweep volume(approx)
+			if (Key(keyAlias_drawRobotSweep))
 			{
+				// if moving robot is drawn
+				if (!Key(keyAlias_drawRobotCurrent))
+					glColor3f(.8, .8, .8);
+				else
+					glColor3f(.2, .2, .2);
 
-				glColor3f(.2, .2, .2);
 				glLineWidth(0.5);
 
-				for (int i = 0; i < mcPath.size(); i++)
+				// find which path to use
+				auto pathPtr = &mcPath;
+				if (pathType == 1)
+					pathPtr = &arcPathTess;
+
+				auto& sweepPath = *pathPtr;
+
+
+				for (int i = 0; i < sweepPath.size(); i++)
 				{
 					auto& robot = Models_Approx[robotIdx];
-					Point translation(mcPath[i].x, mcPath[i].y);
-					double rotationDegree = mcPath[i].z;
+					Point translation(sweepPath[i].x, sweepPath[i].y);
+					double rotationDegree = sweepPath[i].z;
 					for (auto& as : robot)
 						for (auto& arc : as.Arcs)
 						{
@@ -2923,8 +4510,416 @@ namespace ms {
 				}
 			}
 
+			// enable z-buffer dist testing
+			if (Key('z'))
+			{
+				Circle c;
+				c.c = clickedPoint;
+
+				double d;
+				int arcIdx;
+				auto res = distField.getDist(c.c.x(), c.c.y(), d, arcIdx);
+				c.r = d;
+
+				cout << "distField res : " << res << endl;
+				cout << "arcIdx, rad : " << arcIdx << ", " << d << endl;
+
+				if (res && arcIdx < ms::Model_vca[7].size())
+				{
+					auto& arc = ms::Model_vca[7][arcIdx];
+					auto d0 = (c.c - arc.c.c).length1() - arc.c.r;
+					d0 = abs(d0);
+					c.r = d0;
+					cout << "precise r : " << c.r << endl;
+				}
+				if(res)
+					c.draw();
+			}
+
+			if (Key('x'))
+			{
+				if (Key3('<'))
+					distField.dbgVar--;
+				if (Key3('>'))
+					distField.dbgVar++;
+
+				cout << COUT(distField.dbgVar) << endl;
+
+				distField.colorVoronoi(false);
+				//distField.calc();
+			}
+
+			// nav deviation
+			// find deviation // WARNING: may need to add RSV later
+			if (Key3('%'))
+			{
+				/*
+				Def: line L(t). L(0) = v0 and L(1) = v1.
+					Get t of p or p's projection on line
+				*/
+				auto getLineParam = [](Point& p, Point& v0, Point& v1) ->double
+				{
+					auto dir = (v1 - v0).normalize();
+					auto d0 = dir * v0;
+					auto d1 = dir * v1;
+					auto dt = dir * p;
+
+					return (dt - d0) / (d1 - d0);
+				};
+
+
+				// 1. build
+				if (gtBuilt == false)
+				{
+					// err check
+					gtBuilt = true;
+
+					if (gtSamples % ms::numofframe != 0)
+					{
+						cerr << "building GT failed due to gtSamples % ms::numofframe != 0 " << endl;
+					}
+
+					//back up
+					constexpr int robIdx = 1; // idx to read robot from
+					constexpr int tempIdx = 2; // robot(from robIdx) is rotated with littleRot
+					constexpr int obsIdx = 7; // obs idx)
+
+					auto backupArc = ms::Model_vca[robIdx];
+					auto backupCrc = ms::InteriorDisks_Imported[robIdx];
+					
+					// prepare mink 
+					auto t0 = chrono::high_resolution_clock::now();
+
+					// strat: if iter = 3600 / 360 => get 360 slice first. then rotate model_vca 0.1degree and get another 360 slice... repeat
+					int iter = gtSamples / ms::numofframe;
+					double littleRot = 360.0 / gtSamples;
+
+					// for(all possible thetaOffset)
+					for (int i = 0; i < iter; i++)
+					{
+						// 1. set mink input
+						double thetaOffset = i * littleRot;
+						
+						// copy
+						auto& arcs = ms::Model_vca[tempIdx];
+						auto& crcs = ms::InteriorDisks_Imported[tempIdx];
+
+						arcs = ms::Model_vca[robIdx];
+						crcs = ms::InteriorDisks_Imported[robIdx];
+
+						// rot 0.1?
+						if (i == 0)
+						{
+
+						}
+						else
+						{
+							for (auto& arc : arcs)
+								arc = cd::rotateArc(arc, thetaOffset);
+							for (auto& crc : crcs)
+								crc.c = crc.c.rotate(thetaOffset / 180.0 * PI);
+						}
+
+						// process as mink input
+						ms::Model_from_arc[tempIdx] = true;
+						vector<ArcSpline>& asRSV = ms::Models_Approx[tempIdx];
+						asRSV.clear();
+						planning::_Convert_VectorCircularArc_To_MsInput(arcs, asRSV);
+						ms::t0 = tempIdx;
+						ms::t1 = obsIdx;
+						ms::postProcess(tempIdx, obsIdx);
+
+						////dbg_out
+						//cout << "arcs asRSV : " << arcs.size() << " , " << asRSV.size() << endl;
+						//cout << asRSV.front().Arcs.front() << endl;
+						//for (auto& a : ms::Models_Rotated_Approx)
+						//	cout << a.size() << " ";
+						//cout << endl;
+
+
+						// 2. do mink
+						for (int j = 0; j < ms::numofframe; j++)
+						{
+// do mink
+minkowskisum(j, obsIdx);
+
+// find global idx in GT
+int gtIdx = j * iter + i; // change of i == 0.1 degree. change of j = 1.0 degree (when 3600/360)
+
+// copy
+//gtMink[gtIdx] = ms::Model_Result;
+//gtMink2[gtIdx] = ms::ModelInfo_Boundary;
+//gtMink3[gtIdx] = ms::InteriorDisks_Convolution;
+
+gtMink[gtIdx].swap(ms::Model_Result);
+gtMink2[gtIdx].swap(ms::ModelInfo_Boundary);
+gtMink3[gtIdx].swap(ms::InteriorDisks_Convolution);
+
+////dbg_out
+//if (j == 0)
+//{
+//	cout << 
+//}
+						}
+					}
+
+					auto t1 = chrono::high_resolution_clock::now();
+
+					// 3. do vor
+					for (int i = 0; i < gtSamples; i++)
+					{
+						// convert
+						VR_IN& vrin = gtVrin[i];
+						_Convert_MsOut_To_VrIn(gtMink[i], gtMink2[i], vrin);
+
+						// do vor
+						vector<retTypeFBR> ret;
+						voronoiCalculator vc;
+						vc.setInput(vrin.arcs, vrin.left, vrin.color);
+						vc.setOutput(ret);
+						vc.calculate();
+
+						// push
+						for (auto& a : ret)
+							for (auto& b : a)
+							{
+								gtVor[i].push_back(b);
+							}
+
+						// get clr
+						for (auto& v : gtVor[i])
+						{
+							auto& a0 = vrin.arcs[v.idx[0]];
+							auto& a1 = vrin.arcs[v.idx[1]];
+
+							v.clr0() = abs((a0.cc() - v.v0).length1() - a0.cr());
+							v.clr1() = abs((a0.cc() - v.v1).length1() - a0.cr());
+
+							// test error
+							if (true)
+							{
+								auto clr0 = abs((a1.cc() - v.v0).length1() - a1.cr());
+								auto clr1 = abs((a1.cc() - v.v1).length1() - a1.cr());
+
+								if (abs(v.clr0() - clr0) > 1e-2)
+									cerr << "clr diff " << v.clr0() << " " << clr0 << " at gtIdx: " << i << endl;
+								if (abs(v.clr1() - clr1) > 1e-2)
+									cerr << "clr diff " << v.clr1() << " " << clr1 << " at gtIdx: " << i << endl;
+							}
+						}
+
+					}
+
+					auto t2 = chrono::high_resolution_clock::now();
+
+					// 4. collision testers
+					for (int i = 0; i < gtSamples; i++)
+					{
+						vector<bool> convexityList(gtVrin[i].arcs.size());
+						for (int j = 0; j < convexityList.size(); j++)
+						{
+							convexityList[j] = !gtVrin[i].arcs[j].ccw;
+						}
+						gtTester[i].initialize(gtVrin[i], convexityList, gtMink3[i]);
+
+						//gtTester[i].ini
+					}
+					auto t3 = chrono::high_resolution_clock::now();
+
+					// cout time
+					{
+						auto d0 = chrono::duration_cast<chrono::milliseconds>(t1 - t0).count();
+						auto d1 = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
+						auto d2 = chrono::duration_cast<chrono::milliseconds>(t3 - t2).count();
+
+						cout << "GT mink time : " << d0 << "ms" << endl;
+						cout << "GT vor  time : " << d1 << "ms" << endl;
+						cout << "GT pCol time : " << d2 << "ms" << endl;
+					}
+
+				}// ending if (!built)
+
+				// 2. do actual deviation diff calc
+				{
+				cout << "Starting deviation test" << endl;
+				cout << "Path type list : 0 = opt-poly-path // 1 = arc-path-tess" << endl;
+				cout << "Current path type: " << pathType << endl;
+
+				// i. find path
+				auto pp = &arcPathTess;
+				if (pathType == 0)
+					pp = &mcPath;
+				auto& evPath = *pp;
+				cout << "path sample size : " << evPath.size() << endl;
+
+				// ii .find robot info
+
+				// iii. build clearance
+				cout << "finding closest" << endl;
+				vector<double> clrList(evPath.size());
+				{
+					for (int i = 0; i < evPath.size(); i++)
+					{
+						auto& v = evPath[i];
+
+						// find p, sliceNo
+						Point p(v.x, v.y);
+						int sliceNo;
+						{
+							auto z = v.z;
+							while (z < 0)
+								z += 360.0;
+							while (z >= 360.0)
+								z -= 360.0;
+							sliceNo = gtSamples * z / 360.0;
+
+							if (sliceNo < 0 || sliceNo >= gtSamples)
+							{
+								cout << "sliceNo strange : " << sliceNo << endl;
+							}
+						}
+
+						// test;
+						Point close;
+						bool col = gtTester[sliceNo].testPrecise(p, close);
+
+						if (col)
+						{
+							cout << "Possible collision? " << endl;
+						}
+
+						// set clr
+						clrList[i] = (p - close).length1();
+					}
+				}
+				
+				// iv. build deviation (dist to closest voronoi diagram)
+				vector<double> deviation(evPath.size());
+				vector<double> deviationClr(evPath.size());
+				for (int i = 0; i < evPath.size(); i++)
+				{
+					auto& v = evPath[i];
+
+					// find p, sliceNo
+					Point p(v.x, v.y);
+					int sliceNo;
+					{
+						auto z = v.z;
+						while (z < 0)
+							z += 360.0;
+						while (z >= 360.0)
+							z -= 360.0;
+						sliceNo = gtSamples * z / 360.0;
+
+						if (sliceNo < 0 || sliceNo >= gtSamples)
+						{
+							cout << "sliceNo strange : " << sliceNo << endl;
+						}
+					}
+
+					// find min
+					double min = 1e100;
+					double minPointClr;
+					auto& vorList = gtVor[sliceNo];
+					for (auto& vor : vorList)
+					{
+						auto t = getLineParam(p, vor.v0, vor.v1);
+
+						double dist, clear;
+
+						//get dist clear
+						if (t <= 0.0)
+						{
+							dist = (p - vor.v0).length2();
+							clear = vor.clr0();
+						}
+						else if (t >= 1.0)
+						{
+							dist = (p - vor.v0).length2();
+							clear = vor.clr0();
+						}
+						else
+						{
+							Point close = vor.v0 * (1 - t) + vor.v1 * t;
+							clear = vor.clr0() * (1 - t) + vor.clr1() * t;
+							dist = (p - close).length2();
+						}
+						
+						if (dist < min)
+						{
+							min = dist;
+							minPointClr = clear;
+						}
+
+						//auto d0 = (p - vor.v0).length2();
+						//auto d1 = (p - vor.v1).length2();
+						//if (d0 < min)
+						//{
+						//	min = d0;
+						//	minPointClr = vor.clr0();
+						//}
+						//if (d1 < min)
+						//{
+						//	min = d1;
+						//	minPointClr = vor.clr1();
+						//}
+					}
+
+					deviation[i] = sqrt(min);
+					deviationClr[i] = minPointClr;
+				}
+
+				// v.
+				cout << "clr : dev : vorClr" << endl;
+				for (int i = 0; i < deviation.size(); i++)
+				{
+					cout << std::scientific;
+					cout 
+						<< setw(4) << i << ":"
+						<< setw(15) << clrList[i] << " , " 
+						<< setw(15) << deviation[i] << " , " 
+						<< setw(15) << deviationClr[i] << endl;
+					cout << std::fixed;
+				}
+
+
+				} // ~2. do actual
+			}
+
+			// check gt
+			if (Key('^') && gtBuilt)
+			{
+				static int sliceNo = 0;
+				
+				if (Key3('{'))
+					sliceNo--;
+				if (Key3('}'))
+					sliceNo++;
+
+				if (sliceNo < 0)
+					sliceNo = 0;
+				if (sliceNo >= gtSamples)
+					sliceNo = gtSamples - 1;
+
+				cout << "gt slice no : " << sliceNo << endl;
+
+				glColor3f(0, 0, 0);
+				for (auto& loop : gtMink[sliceNo])
+					for (auto& as : loop)
+						as.draw();
+
+				glColor3f(0, 0, 1);
+				glBegin(GL_LINES);
+				for (auto& v : gtVor[sliceNo])
+				{
+					glVertex2dv(v.v0.P);
+					glVertex2dv(v.v1.P);
+				}
+				glEnd();
+			}
+
 			// 98. change mode
-			if (planning::keyboardflag['0'] != planning::keyboardflag_last['0'])
+			if (Key3(keyAlias_changePathMode))
 			{
 				const int nPathType = 2;
 				pathType = (pathType + 1) % nPathType;
@@ -2933,10 +4928,12 @@ namespace ms {
 				switch (pathType)
 				{
 				case 0:
+					tessPathPtr = &mcPath;
 					pathSize = mcPath.size();
 					cout << "Biarc Path " << endl;
 					break;
 				case 1:
+					tessPathPtr = &arcPathTess;
 					pathSize = arcPathTess.size();
 					cout << "MC Path" << endl;
 					break;
@@ -2961,365 +4958,7 @@ namespace ms {
 
 			glutSwapBuffers();
 			};
-		auto mouseFunc = [](int button, int action, int x, int y) ->void
-		{
-
-			if (button == 3)
-				clickedZ += 7.5;
-
-			if (button == 4)
-				clickedZ -= 7.5;
-
-			if (button == GLUT_LEFT_BUTTON && action == GLUT_DOWN)
-			{
-				clickNow = true;
-			}
-
-			if (button == GLUT_LEFT_BUTTON && action == GLUT_UP)
-			{
-				clickNow = false;
-
-				// 1. get clicked point
-				auto fx = float(x - wd / 2) / (wd / 2);
-				auto fy = float(-y + ht / 2) / (ht / 2);
-				fx = zoom * fx + tx;
-				fy = zoom * fy + ty;
-				clickedPoint.x() = fx;
-				clickedPoint.y() = fy;
-
-				// 2.
-				switch (clickStatus)
-				{
-				case 0:
-					// set start point
-					sx = clickedPoint.x();
-					sy = clickedPoint.y();
-					sz = clickedZ;
-					clickStatus = 1;
-					cout << "Start point : " << sx << ", " << sy << ", " << sz << endl;
-					break;
-
-				case 1:
-					// set end point
-					ex = clickedPoint.x();
-					ey = clickedPoint.y();
-					ez = clickedZ;
-					clickStatus = 2;
-					cout << "End point : " << ex << ", " << ey << ", " << ez << endl;
-					break;
-
-				case 2:
-					{
-						// Alias
-						std::vector<std::vector<v_edge>>&
-							v_edges = planning::output_to_file::v_edges;
-						int szIdx = sz / 360.0 * ms::numofframe; while(szIdx < 0) szIdx += ms::numofframe; szIdx %= ms::numofframe;
-						int ezIdx = ez / 360.0 * ms::numofframe; while(ezIdx < 0) ezIdx += ms::numofframe; ezIdx %= ms::numofframe;
-						{
-							//just to make 64-bits of z value all same with that of a-star graph
-							double dz = 360.0 / v_edges.size();
-
-							sz = 0.0;
-							ez = 0.0;
-							for (int i = 0; i < szIdx; i++)
-								sz += dz;
-							for (int i = 0; i < ezIdx; i++)
-								ez += dz;
-						}
-
-						// i. find closest v_edge
-
-						// i-1. start
-						double closestDist = 1E8;
-						Point closestPoint;
-						Point temp(sx, sy);
-
-						// for (All ve)
-						for (int i = 0; i < v_edges[szIdx].size(); i++)
-						{
-							auto& ve = v_edges[szIdx][i];
-							auto& p = ve.v0;
-							auto  d = sqrt((temp - p).length2());
-							if (d < closestDist && d < ve.clr0())
-							{
-								closestDist = d;
-								closestPoint = p;
-							}
-						}
-						if (closestDist == 1E8)
-						{
-							cerr << "Invalid Input to Astar" << endl;
-							clickStatus = 0;
-							break;
-						}
-						ver0 = Vertex(closestPoint.x(), closestPoint.y(), sz);
-
-						// i-2. end point
-						closestDist = 1E8;
-						temp = Point(ex, ey);
-						// for (All ve)
-						for (int i = 0; i < v_edges[ezIdx].size(); i++)
-						{
-							auto& ve = v_edges[ezIdx][i];
-							auto& p = ve.v0;
-							auto  d = sqrt((temp - p).length2());
-							if (d < closestDist && d < ve.clr0())
-							{
-								closestDist = d;
-								closestPoint = p;
-							}
-						}
-						if (closestDist == 1E8)
-						{
-							cerr << "Invalid Input to Astar" << endl;
-							clickStatus = 0;
-							break;
-						}
-						ver1 = Vertex(closestPoint.x(), closestPoint.y(), ez);
-						
-						
-						// ii. run a-star
-						std::vector<Vertex> path;
-						vector<xyt> dijkresult;
-						std::vector<double> vertClr;
-						std::vector<gs::EdgeType> ets;
-						bool useDijk = true;
-						bool useDijk2 = true;
-						if (useDijk)
-						{
-							if (useDijk2)
-							{
-								xyt
-									s(sx, sy, sz),
-									e(ex, ey, ez);
-
-								if (gs::dijk.searchGraph2(s, e, dijkresult, vertClr, ets, robotForward))
-								{
-									for (auto v : dijkresult)
-									{
-										Vertex temp;
-										temp.x = v.x();
-										temp.y = v.y();
-										temp.z = v.t();
-
-										path.push_back(temp);
-									}
-								}
-								else
-								{
-									cout << "Dijkstra: no path" << endl;
-									auto t0 = std::chrono::high_resolution_clock::now();
-									auto t1 = t0;
-									auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-									while (ms < 1000.0)
-									{
-										t1 = std::chrono::high_resolution_clock::now();
-										ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-									}
-								}
-							}
-							else
-							{
-								vector<int> vertIdxList;
-								xyt
-									s(sx, sy, sz),
-									e(ex, ey, ez);
-
-								// if(path exists)
-								if (gs::dijk.searchGraph(s, e, vertIdxList))
-								{
-									Vertex sv(sx, sy, sz);
-									Vertex ev(ex, ey, ez);
-
-									path.push_back(sv);
-									for (auto i : vertIdxList)
-									{
-										auto& v = gs::dijk.getVert()[i];
-
-										Vertex temp;
-										temp.x = v.x();
-										temp.y = v.y();
-										temp.z = v.t();
-										path.push_back(temp);
-									}
-									path.push_back(ev);
-
-									// debug out
-									int i = 0;
-									for (auto& p : path)
-									{
-										cout << "dijk path: " << i << ":" << p.x << " , " << p.y << " , " << p.z << endl;
-										i++;
-									}
-
-								}
-								else
-								{
-									cout << "Dijkstra: no path" << endl;
-									auto t0 = std::chrono::high_resolution_clock::now();
-									auto t1 = t0;
-									auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-									while (ms < 1000.0)
-									{
-										t1 = std::chrono::high_resolution_clock::now();
-										ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-									}
-								}
-							}
-						}
-						else
-							path = invoke_AStar(theGr, vecVertices, mapLookup, ver0, ver1);
-						
-						if(false)
-						{
-							// path : approx biarc
-							arcPath.clear();
-							arcPathRot.clear();
-							refinePathBiarc(path, 10, arcPath, arcPathRot);
-							//dbg_out
-							{
-								for (auto a : arcPath)
-									cout << "AP : " << a.x0() << "   " << a.x1() << endl;
-
-								for (auto a : arcPath)
-									cout << "AP norm : " << a.n0() << "   " << a.n1() << endl;
-							}
-
-							// path : tess
-							arcPathTess.clear();
-							tessPathBiarc(arcPath, arcPathRot, 0.04, arcPathTess);
-							pathSize = arcPathTess.size();
-							pathIdx = 0;
-
-							// path : 
-							//tessPathAlignTheta(arcPathTess, graphSearch::testers2, Point(0, 1));
-						}
-						if (true)
-						{
-							for (int i = 0; i < ets.size(); i++)
-							{
-								cout 
-									<< "edge " << i << " : " << gs::et2str(ets[i]) << endl
-									<< "  vert0 : " << path[i  ].x << ", " << path[i  ].y << ", " << path[i  ].z << ", " << vertClr[i  ] << endl
-									<< "  vert1 : " << path[i+1].x << ", " << path[i+1].y << ", " << path[i+1].z << ", " << vertClr[i+1] << endl;
-							}
-						}
-
-						// save mcPath
-						pathGraphSearch = path;
-
-						vector<xyt> optPath;
-						optimizePath(dijkresult, vertClr, ets, optPath);
-
-						vector<Vertex> path2;
-						for (auto v : optPath)
-						{
-							Vertex temp;
-							temp.x = v.x();
-							temp.y = v.y();
-							temp.z = v.t();
-
-							path2.push_back(temp);
-						}
-
-						mcPath.clear(); //drawing path
-						tessPathClear(path2, 0.02, mcPath);
-						pathSize = mcPath.size();
-						pathType = 0;
-						pathIdx = 0;
-
-						{
-						//// iii. do refinement.
-						//vector<Vertex> ref;
-						//refinePath(path, ref);
-						//
-						//bool refiningDone = true;
-						//if(!refiningDone)
-						//{
-						//	//temp
-						//	if (mcPath.size() == 0)
-						//	{
-						//
-						//	}
-						//	else
-						//	{
-						//		delete[] pathPtr;
-						//	}
-						//
-						//	pathSize = path.size() + 2;
-						//	pathPtr = new double[(path.size()+2) * 3];
-						//	pathIdx = 0;
-						//
-						//	for (int i = 0; i < path.size(); i++)
-						//	{
-						//		pathPtr[3 * i + 3] = path[i].x;
-						//		pathPtr[3 * i + 4] = path[i].y;
-						//		pathPtr[3 * i + 5] = path[i].z;
-						//	}
-						//
-						//	pathPtr[0] = sx;
-						//	pathPtr[1] = sy;
-						//	pathPtr[2] = sz;
-						//	pathPtr[(path.size() + 1) * 3 + 0] = ex;
-						//	pathPtr[(path.size() + 1) * 3 + 1] = ey;
-						//	pathPtr[(path.size() + 1) * 3 + 2] = ez;
-						//
-						//
-						//}
-						//else
-						//{
-						//	//temp
-						//	if (mcPath.size() == 0)
-						//	{
-						//
-						//	}
-						//	else
-						//	{
-						//		delete[] pathPtr;
-						//	}
-						//
-						//	pathSize = ref.size();
-						//	pathPtr = new double[(pathSize) * 3];
-						//	pathIdx = 0;
-						//
-						//	for (int i = 0; i < pathSize; i++)
-						//	{
-						//		pathPtr[3 * i + 0] = ref[i].x;
-						//		pathPtr[3 * i + 1] = ref[i].y;
-						//		pathPtr[3 * i + 2] = ref[i].z;
-						//	}
-						//
-						//	mcPath = path;
-						//}
-						}
-
-						clickStatus = 0;
-						break;
-					}
-				default:
-					break;
-				
-				}
-
-			}
-
-			if (button == GLUT_RIGHT_BUTTON)
-			{
-				clickStatus = 0;
-			}
-
-			glutPostRedisplay();
-		};
-		auto motionFunc = [](int x, int y)
-		{
-			auto fx = float(x - wd / 2) / (wd / 2);
-			auto fy = float(-y + ht / 2) / (ht / 2);
-			fx = zoom * fx + tx;
-			fy = zoom * fy + ty;
-			clickedPoint.x() = fx;
-			clickedPoint.y() = fy;
-		};
-
+		
 		glutInit(&argc, argv);
 		glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA);
 		glutInitWindowSize(wd, ht);
@@ -3330,8 +4969,89 @@ namespace ms {
 		glutKeyboardFunc(keyboard_callback);
 		glutMotionFunc(motionFunc);
 		glutIdleFunc(idleFunc);
-
 		glEnable(GL_DEPTH_TEST);
+
+		// nav rp main
+
+		// 1.1 render buffer
+		{
+			auto t0 = clock();
+			//for (auto& as : ms::Models_Approx[7])
+			//	for (auto& a : as.Arcs)
+			//		distFieldArcs.push_back(a);
+			for(auto& a: ms::Model_vca[7])
+				distFieldArcs.push_back(a);
+
+			distField.setInput(distFieldArcs, wd, ht);
+			distField.calc();
+			auto dt = clock() - t0;
+			cout << "distField time: " << dt << "ms" << endl;
+
+			distField.findDistanceMap(dfImage);
+		}
+
+		// 1.2 build arcIdxToLoopIdx
+		{
+			// assume g0 between loops
+			// assume distFieldArcs not empty
+
+			int currentLoop = 0;
+			arcIdxToLoopIdx.push_back(currentLoop);
+			Point lastP = distFieldArcs.front().x1();
+
+			for (int i = 1; i < distFieldArcs.size(); i++)
+			{
+				auto& arc = distFieldArcs[i];
+
+				// if (g0)
+				if ((lastP - arc.x0()).length2() < 1e-8)
+				{
+					arcIdxToLoopIdx.push_back(currentLoop);
+				}
+				else
+				{
+					currentLoop++;
+					arcIdxToLoopIdx.push_back(currentLoop);
+				}
+
+				lastP = arc.x1();
+			}
+
+			// take care of same loop
+			if (gs::obsType == 13)
+			{
+				for (auto& i : arcIdxToLoopIdx)
+					if (i == 1)
+						i = 0;
+			}
+			if (gs::obsType == 16)
+			{
+				for (auto& i : arcIdxToLoopIdx)
+				{
+					if (i == 0 || i == 9 )
+						i = 13;
+					else if (i == 13)
+						i = 0;
+				}
+			}
+
+			distField.findDistanceMap2(dfImage2, arcIdxToLoopIdx);
+			distField.findDistanceMap3(dfImage3, arcIdxToLoopIdx);
+
+			cout << "arcIdxToLoop" << endl;
+			for (auto a : arcIdxToLoopIdx)
+				cout << a << " ";
+			cout << endl;
+		}
+
+		//show color
+		cout << "showing color and idx" << endl;
+		for (int i = 0; i < 20; i++)
+		{
+			cout << i << ": " << int(distField._red(i)) << " " << int(distField._green(i)) << " " << int(distField._blue(i)) << endl;
+		}
+
+
 
 		glutMainLoop();
 	}

@@ -85,5 +85,8 @@ TODO LIST
 	RSV
 	(path-opt) -> AS-path -> rot with arc -> sweep path
 
+27. is arcPath not seeming like it is g1... because some biarcs have eps?
+	good way to make polygon biarc
 
+28. completely rework...
 */

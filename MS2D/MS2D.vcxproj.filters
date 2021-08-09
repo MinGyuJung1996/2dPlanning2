@@ -51,6 +51,9 @@
     <ClInclude Include="dijkstra.hpp">
       <Filter>헤더 파일</Filter>
     </ClInclude>
+    <ClInclude Include="distance field.hpp">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="MS2D.cpp">
@@ -93,6 +96,15 @@
       <Filter>소스 파일</Filter>
     </ClCompile>
     <ClCompile Include="modelEditor.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="boundaryExtractor.hpp">
+      <Filter>헤더 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="boundaryExtractor.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="distance field.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
   </ItemGroup>

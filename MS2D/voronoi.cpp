@@ -5,6 +5,7 @@
 #include "support.hpp"
 
 #define TEST_CONVERT_MS_G0 false
+#define TEST_CHECK_EPS_ARC_IN_CVT_MSOUT_TO_VRIN false
 
 #define OPT_useCvxHullAsVorBound  false
 #define OPT_expandCvxHullVorBound true
@@ -2785,10 +2786,13 @@ namespace planning
 		}
 
 		// 5. test?
-		int eps = 0;
-		for (auto i : vrIn.arcs)
-			if (epsilon(i)) eps++;
-		cout << "eps arc : " << eps << endl;
+		if(TEST_CHECK_EPS_ARC_IN_CVT_MSOUT_TO_VRIN)
+		{
+			int eps = 0;
+			for (auto i : vrIn.arcs)
+				if (epsilon(i)) eps++;
+			cout << "eps arc : " << eps << endl;
+		}
 		return;
 	}
 
