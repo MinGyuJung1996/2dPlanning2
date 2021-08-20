@@ -89,4 +89,6 @@ TODO LIST
 	good way to make polygon biarc
 
 28. completely rework...
+
+29. arcPath rotation at start/end
 */

@@ -91,6 +91,7 @@ Arrow : camera position (TODO)
 // Keyboard Left (frequently used)
 q: Align:	p2 is picked axis aligned
 w: Align:	p2 is in a same line with some point in vec
+e: g1 arc at picking curvature
 r: Refine:	refine model g1
 a: Axis:	draw axis grid
 d: Disk:	calc disk
@@ -145,7 +146,17 @@ n,m: scale  loop
 	{
 		auto& mp = mousePosition;
 
-		// 1. check whethre line representing arc should be sent
+		// 0. check whether use g1 arc
+		if (Key('e') && model_arcs.size() > 0)
+		{
+			auto tan = model_arcs.back().tan1();
+			auto arc = cd::constructArc(x0, x1, tan);
+			if (arc.tan0() * tan < 0)
+				arc.ccw = !arc.ccw;
+			return arc;
+		}
+
+		// 1. check whether line representing arc should be sent
 		bool isLine = false;
 		{
 			// i. when mp is too close

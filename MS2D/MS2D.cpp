@@ -389,6 +389,7 @@ void initializeRobotObstacles(int RobotIdx, int ObstaclesIdx)
 	if (RobotIdx == 2)
 	{
 		robotForward = Point(0, 1);
+		double scale = 0.25;
 
 		using namespace std;
 		vector<CircularArc> arcObjectSq;
@@ -398,7 +399,7 @@ void initializeRobotObstacles(int RobotIdx, int ObstaclesIdx)
 		vector<CircularArc> robot;
 		vector<Circle> robotC;
 
-		appendArcModel(robot, robotC, arcObjectSq, circObjectSq, 0.5, 0, Point(0.2, 0.2));
+		appendArcModel(robot, robotC, arcObjectSq, circObjectSq, scale * 0.5, 0, scale * Point(0.2, 0.2));
 
 		ms::Model_vca				[rsvIdx] = robot;
 		ms::InteriorDisks_Imported	[rsvIdx] = robotC;
@@ -485,6 +486,20 @@ void initializeRobotObstacles(int RobotIdx, int ObstaclesIdx)
 		Point uniformTranslation;
 		switch (ObstaclesIdx)
 		{
+		case 17:
+		{
+			// 
+			vector<CircularArc> arcs;
+			vector<Circle>	   circs;
+
+			readArcModel(
+				"modelEditor/temp_ICRA/arc.txt",
+				"modelEditor/temp_ICRA/circ.txt",
+				arcs, circs
+			);
+			appendArcModel(sceneOriginal, sceneCircles, arcs, circs, 1.0, 0.0, Point(0, 0));
+			break;
+		}
 		case 16:
 		{
 			// 
@@ -699,13 +714,15 @@ void initializeRobotObstacles(int RobotIdx, int ObstaclesIdx)
 		}
 		case 2:
 		{
-			sceneOriginal.push_back(CircularArc(Point(1, 1), 0.5, Point(1, 0), Point(0, 1)));
-			sceneOriginal.push_back(CircularArc(Point(1, 1), 0.5, Point(0, 1), Point(-1, 0)));
-			sceneOriginal.push_back(CircularArc(Point(1, 1), 0.5, Point(-1, 0), Point(0, -1)));
-			sceneOriginal.push_back(CircularArc(Point(1, 1), 0.5, Point(0, -1), Point(1, 0)));
-			sceneCircles.push_back(Circle(Point(1, 1), 0.35));
-			sceneCircles.push_back(Circle(Point(1, 1), 0.4));
-			sceneCircles.push_back(Circle(Point(1, 1), 0.3));
+			double scale = 0.25;
+
+			sceneOriginal.push_back(CircularArc(scale * Point(1, 1), scale * 0.5, Point(1, 0), Point(0, 1)));
+			sceneOriginal.push_back(CircularArc(scale * Point(1, 1), scale * 0.5, Point(0, 1), Point(-1, 0)));
+			sceneOriginal.push_back(CircularArc(scale * Point(1, 1), scale * 0.5, Point(-1, 0), Point(0, -1)));
+			sceneOriginal.push_back(CircularArc(scale * Point(1, 1), scale * 0.5, Point(0, -1), Point(1, 0)));
+			sceneCircles.push_back(Circle(scale * Point(1, 1), scale * 0.35));
+			sceneCircles.push_back(Circle(scale * Point(1, 1), scale * 0.4));
+			sceneCircles.push_back(Circle(scale * Point(1, 1), scale * 0.3));
 
 			vector<CircularArc> arcObjectSq;
 			vector<Circle>	   circObjectSq;
@@ -715,10 +732,12 @@ void initializeRobotObstacles(int RobotIdx, int ObstaclesIdx)
 			vector<Circle>     circObjectTri;
 			readArcModel("Objects/Hex-shape-g1/arc.txt", "Objects/Hex-shape-g1/circ.txt", arcObjectTri, circObjectTri);
 
-			appendArcModel(sceneOriginal, sceneCircles, arcObjectSq, circObjectSq, 1, 0.5, Point(-1.2, -1.3));
-			appendArcModel(sceneOriginal, sceneCircles, arcObjectTri, circObjectTri, 1, -0.3, Point(+1.1, -1.5));
+			appendArcModel(sceneOriginal, sceneCircles, arcObjectSq, circObjectSq  , scale * 1,  0.5, scale * Point(-1.2, -1.3));
+			appendArcModel(sceneOriginal, sceneCircles, arcObjectTri, circObjectTri, scale * 1, -0.3, scale * Point(+1.1, -1.5));
 
 			vbRad = 3.0;
+			if (scale == 0.25)
+				vbRad = 1.0;
 			break;
 		}
 		case 1:

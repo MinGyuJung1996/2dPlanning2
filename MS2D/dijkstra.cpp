@@ -3,7 +3,7 @@
 #include "xyt-cs.hpp"
 
 #define COUT(x) #x " : " << x
-#define ONLY_USE_VORONOI_IN_GRAPH true
+#define ONLY_USE_VORONOI_IN_GRAPH false
 
 namespace graphSearch
 {

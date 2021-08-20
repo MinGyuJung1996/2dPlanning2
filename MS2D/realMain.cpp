@@ -221,7 +221,7 @@ int main(int argc, char *argv[]) {
 
 	// nav real
 
-	//modelEditor::main(argc, argv);	// make model/scene with mouse
+	modelEditor::main(argc, argv);	// make model/scene with mouse
 	//sceneEditor::main(argc, argv);	// interactive editing of scene
 	//rendering3D::main3::main3(argc, argv);	// draw 3d c-space
 	graphSearch::main2(argc, argv);		// draw moving robot
@@ -254,12 +254,14 @@ namespace graphSearch
 	// nav rob 
 	// nav obs
 
-	int robotType = 4;
+	int robotType = 1;
 	/*
+	0 : rect
 	1 : 8
+	2 : sq
 	3 : 8-2
 	*/
-	int obsType = 12; // nav obs
+	int obsType = 15; // nav obs
 	/* options: (obs)
 	3: curved S corridor
 	1,4 1,5
@@ -268,6 +270,7 @@ namespace graphSearch
 	13: maze
 	*15: magnified 3
 	*16: maze refined 
+	*17: ICRA
 	*/
 
 	/*
