@@ -5714,6 +5714,18 @@ void Circle::draw()
 	glEnd();
 }
 
+void Circle::draw(double z)
+{
+	glBegin(GL_POLYGON);
+	for (int i = 0; i <= CRES; i++) {
+		double angle = 2 * PI * (double)i / (double)CRES;
+		Point unit = { cos(angle), sin(angle) };
+		Point p = c + r * 1.0 * unit;
+		glVertex3d(p.x(), p.y(), z);
+	}
+	glEnd();
+}
+
 /*!
 *	\brief Circular Arc를 p에 대하여 점대칭
 *

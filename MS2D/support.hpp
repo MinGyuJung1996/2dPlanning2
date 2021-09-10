@@ -70,8 +70,8 @@ Notice that if one model is completely inside another, no commonTangent
 *****************************************************************************************************************************************************/
 
 /*
-Def: Support of an arc
-
+Def: 
+	Support of an arc
 API:
 	construct
 	evaluate: theta --> support-val
@@ -85,7 +85,7 @@ public:
 	Support(CircularArc& arc);
 	
 	// funcs
-	void 
+	void
 		build(CircularArc& arc);
 	double
 		eval(double theta, double c = 2.0, double s = 2.0);
@@ -131,21 +131,91 @@ using Sup = Support;
 
 /*****************************************************************************************************************************************************
 **																																					**
+**																Support Complex																		**
+**																																					**
+*****************************************************************************************************************************************************/
+
+/*
+Def: Carries pieces of g0-continuous {a*cos(theta) + b*sin(theta) + r)
+
+Member:
+	interval : size() = (No. of pieces + 1)
+		how [0, 2pi) is divided;
+
+*/
+struct SupportComplex
+{
+public:
+	SupportComplex() = default;
+	~SupportComplex() = default;
+	SupportComplex(Support& sup);
+	
+	void build(Support& sup);
+	void draw();
+	void print();
+	
+	void flip();
+
+	SupportComplex upperEnvelope(SupportComplex& rhs);
+	vector<double> intersection(SupportComplex& rhs);
+	Point point(double t);
+	bool isColiision(Point& p, Point& q);
+	bool isCollisionOffset(double offset, Point& p, Point& q);
+	bool isPointInside(Point& p);
+
+
+	inline vector<double>& a() { return _a; }
+	inline vector<double>& b() { return _b; }
+	inline vector<double>& r() { return _r; }
+	inline vector<double>& t() { return _interval; }
+	inline vector<CircularArc*>& arc() { return _arcIdx; }
+private:
+	static SupportComplex _simplify(SupportComplex& temp);
+
+	vector<double>
+		_a,				// coeff
+		_b,				// coeff
+		_r;				// coeff
+	vector<double>
+		_interval;		// interval endpoints, where curve equation changes. (always contain 0, 2pi at each end)
+	vector<CircularArc*>
+		_arcIdx;		// arc ptr, where corresponding interval comes from
+
+	double _max, _min;
+
+	static int _drawSampleNo;
+};
+using SupCom = SupportComplex;
+
+/*****************************************************************************************************************************************************
+**																																					**
 **															Common Tangent Calculator																**
 **																																					**
 *****************************************************************************************************************************************************/
+
+/*
+Def: 
+	class to calculate common tangent between two models (represented with circArc)
+*/
 struct CommonTangentCalculator
 {
 public:
-	static vector<Point> eval(Sup& a, Sup& b); //TODO
-	static vector<Point> eval(CircularArc& a, CircularArc& b); //TODO
 
 	void setInput0(vector<CircularArc>& loop0);
 	void setInput1(vector<CircularArc>& loop1);
 	void setOutput(vector<Point>& out);
 	void calc();
 
+	static SupportComplex findEnvelope(vector<CircularArc>& model);
+	static vector<Point>  findCommonTangentCase0(SupportComplex& env0, SupportComplex& env1);
+	static vector<Point>  findCommonTangentCase1(SupportComplex& env0, SupportComplex& env1);
+	static vector<Point>  findCommonTangentCase0Offset(SupportComplex& env0, SupportComplex& env1, double offset0, double offset1);
+	static vector<Point>  findCommonTangentCase1Offset(SupportComplex& env0, SupportComplex& env1, double offset0, double offset1);
+
 private:
+	static vector<Point> eval(Sup& a, Sup& b); //TODO
+	static vector<Point> eval(CircularArc& a, CircularArc& b); //TODO
+
 	vector<CircularArc>
 		* _loop0,
 		* _loop1;
@@ -190,51 +260,3 @@ private:
 };
 using CvxHullCalc = ConvexHullCalculator;
 
-/*
-Def: Carries pieces of g0-continuous {a*cos(theta) + b*sin(theta) + r)
-
-Member:
-	interval : size() = (No. of pieces + 1)
-		how [0, 2pi) is divided;
-
-*/
-struct SupportComplex
-{
-public:
-	SupportComplex() = default;
-	~SupportComplex() = default;
-	SupportComplex(Support& sup);
-	
-	void build(Support& sup);
-	void draw();
-	void print();
-	
-	void flip();
-
-	SupportComplex upperEnvelope(SupportComplex& rhs);
-	vector<double> intersection(SupportComplex& rhs);
-	Point point(double t);
-
-
-	inline vector<double>& a() { return _a; }
-	inline vector<double>& b() { return _b; }
-	inline vector<double>& r() { return _r; }
-	inline vector<double>& t() { return _interval; }
-	inline vector<CircularArc*>& arc() { return _arcIdx; }
-private:
-	static SupportComplex _simplify(SupportComplex& temp);
-
-	vector<double>
-		_a,				// coeff
-		_b,				// coeff
-		_r;				// coeff
-	vector<double>
-		_interval;		// interval endpoints, where curve equation changes. (always contain 0, 2pi at each end)
-	vector<CircularArc*>
-		_arcIdx;		// arc ptr, where corresponding interval comes from
-
-	double _max, _min;
-
-	static int _drawSampleNo;
-};
-using SupCom = SupportComplex;

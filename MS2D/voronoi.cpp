@@ -6345,3 +6345,505 @@ void voronoiCalculatorResultG::initialize()
 {
 
 }
+
+
+/*****************************************************************************************************************************
+**																															**
+**												  ~~~~~~~~~~~~~~~~~~~~~~													**
+**												  ~~   Offset Curve   ~~													**
+**												  ~~~~~~~~~~~~~~~~~~~~~~													**
+**																															**
+*****************************************************************************************************************************/
+
+
+namespace planning
+{
+	
+	/*
+	Def: 
+		Given a voronoi structure (and arcs it is from),
+		fill in the clearance info
+	Assume:
+		Idx for voronoi edges are properly set
+		arc is g1
+	Param:
+		Self-explanatory
+	*/
+	void setClearance(vector<VoronoiEdge>& _in_voronoi, vector<CircularArc>& _in_arcs)
+	{
+		// 0. alias
+		auto& ves = _in_voronoi;
+		auto& arcs = _in_arcs;
+	
+		// 1. for(each arc) save clr
+		for (auto& e : ves)
+		{
+			auto& arc = _in_arcs[e.idx[0]];
+			auto& r   = arc.cr();
+			
+			// dist btw arc center/vor-point
+			auto d0 = (e.v0 - arc.cc()).length1();
+			auto d1 = (e.v1 - arc.cc()).length1();
+	
+			// set clr
+			e.clr0() = abs(d0 - r);
+			e.clr1() = abs(d1 - r);
+		}
+	}
+	
+	using v_edge = planning::output_to_file::v_edge;
+	/*
+	Def:
+		Fine offset curves places where some minimum clr is guranteed
+	Assume:
+		Voronoi clr set
+		Voronoi is dense enough(= v-edge is short enough), so for a v, clr changes almost linearly
+	Param:
+		Voronoi: Voronoi Diagram calculated.
+		Arcs: the arcs that above v-diag is from
+		Offset: offset curve's offset amount
+		Min_Clearance: v_edges with clr less than this value will not make offset crv
+	Desc:
+		For a vor edge to generate a offset curve, its CLR should be bigger than _in_offset.
+		In this alg, We further need to those off-crvs from vor-edges with CLR < min_clearance
+		=> simply check both before generating offset.
+		==> checking with greater(offset,min_clr) is enough ==> this is variable minClr
+	*/
+	vector<v_edge> findOffsetCurve(vector<VoronoiEdge>& _in_Voronoi, vector<CircularArc>& _in_arcs, double _in_offset, double _in_min_clearance)
+	{
+		vector<v_edge> ret;
+	
+		// quick test of valid input 
+		{
+			// if clr not set
+			if (_in_Voronoi.size() == 0)
+				return {};
+			
+			if (_in_Voronoi.front().clr0() < 0.0)
+			{
+				cerr << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << endl;
+				cerr << "!!!ERR: clr not set in findOffsetCurve " << endl;
+				cerr << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << endl;
+				
+				throw std::string("!!!ERR: clr not set in findOffsetCurve ");
+			}
+		}
+	
+		// alias
+		auto& ves    = _in_Voronoi;
+		auto& arcs   = _in_arcs;
+		bool  simple = _in_offset > _in_min_clearance; 
+			// := iff(true) no trimming of offset curve is needed, as all vor-edge that generated offset will have CLR > min_clr anyway. 
+		auto  minClr = simple ? _in_offset : _in_min_clearance; // := offset trimming lower bound of clr // see Desc
+		auto  offset = _in_offset; // := offset amount of curve;
+	
+	
+		//set<Point> inserted;
+		set<int> boundaryCase;
+	
+		// for (each ve)
+		for (int i = 0; i < ves.size(); i++)
+		{
+			// 0. alias for this vor-edge
+			// alias
+			auto& ve = ves[i];
+	
+			// if (error case)
+			if (ve.idx[0] == ve.idx[1])
+				continue;
+	
+			// alias
+			auto& v0 = ve.v0;
+			auto& v1 = ve.v1;
+			auto& arc0 = arcs[ve.idx[0]];
+			auto& arc1 = arcs[ve.idx[1]];
+	
+			// 1. get direction (from ve to offset)
+			auto dir00 = arc0.cc() - v0;
+			auto dir01 = arc1.cc() - v0;
+			auto dir10 = arc0.cc() - v1;
+			auto dir11 = arc1.cc() - v1;
+	
+			auto dist00 = dir00.length1();
+			auto dist01 = dir01.length1();
+			auto dist10 = dir10.length1();
+			auto dist11 = dir11.length1();
+	
+			// if (arc == concave) flip direction
+			if (dist00 < arc0.cr())
+			{
+				dir00 = -dir00;
+				dir10 = -dir10;
+			}
+			if (dist01 < arc1.cr())
+			{
+				dir01 = -dir01;
+				dir11 = -dir11;
+			}
+	
+			// 2. find clr
+			auto& clr0 = ve.clr0();
+			auto& clr1 = ve.clr1();
+			//// set clr
+			//clr0 = abs(dist00 - arc0.cr());
+			//clr1 = abs(dist11 - arc1.cr());
+	
+			// 3. check No. of valid endpoints
+			int nValid = 2;
+			if (clr0 < minClr) nValid--;
+			if (clr1 < minClr) nValid--;
+	
+			// 4. if      (both endpoints are valid)    we are good to go.
+			//    else if (only one valid)    boundary case (do later)
+			//    else    (no valid)	continue;
+			if (nValid == 0)
+				continue;
+			else if (nValid == 1)
+			{
+				// take care of it later
+				boundaryCase.insert(i);
+				continue;
+			}
+	
+			// 5. normalize
+			dir00 = dir00 / dist00;
+			dir01 = dir01 / dist01;
+			dir10 = dir10 / dist10;
+			dir11 = dir11 / dist11;
+	
+			// 6. get vXY (point on offset curve) 
+			auto v00 = v0 + (clr0 - offset) * dir00;
+			auto v01 = v0 + (clr0 - offset) * dir01;
+			auto v10 = v1 + (clr1 - offset) * dir10;
+			auto v11 = v1 + (clr1 - offset) * dir11;
+	
+			// 7. build lseg of offset
+			lseg off0;
+			lseg off1;
+			{
+				// pos of offset
+				off0.v0 = v00;
+				off0.v1 = v10;
+	
+				off1.v0 = v01;
+				off1.v1 = v11;
+	
+				// clr of offset
+				off0.clr0() = offset;
+				off0.clr1() = offset;
+				off1.clr0() = offset;
+				off1.clr1() = offset;
+			}
+	
+			//
+			ret.push_back(off0);
+			ret.push_back(off1);
+	
+			// legacy code
+	
+			/*
+		offCso[sn].push_back(off0);
+		offCso[sn].push_back(off1);
+
+		// conn
+		if (inserted.find(v0) != inserted.end())
+		{
+			lseg con00;
+			con00.v0 = v0;
+			con00.v1 = v00;
+
+			lseg con01;
+			con01.v0 = v0;
+			con01.v1 = v01;
+
+			// tag: clearance setting : ocn
+			con00.clr0() = clr0;
+			con00.clr1() = minClr;
+			con01.clr0() = clr0;
+			con01.clr1() = minClr;
+
+			offCon[sn].push_back(con00);
+			offCon[sn].push_back(con01);
+		}
+		if (inserted.find(v1) != inserted.end())
+		{
+			lseg con10;
+			con10.v0 = v1;
+			con10.v1 = v10;
+
+			lseg con11;
+			con11.v0 = v1;
+			con11.v1 = v11;
+
+			// tag: clearance setting : ocn
+			con10.clr0() = clr1;
+			con10.clr1() = minClr;
+			con11.clr0() = clr1;
+			con11.clr1() = minClr;
+
+			offCon[sn].push_back(con10);
+			offCon[sn].push_back(con11);
+		}
+
+		// insert those who are done
+		inserted.insert(v0);
+		inserted.insert(v1);
+		*/
+	
+		}
+	
+		// 8. take care of boundary case
+		// for (those only that have a single valid endpoint)
+		for (auto i : boundaryCase)
+		{
+			// 8-0. alias
+			auto& ve = ves[i];
+			auto& v0 = ve.v0;
+			auto& v1 = ve.v1;
+			auto& arc0 = arcs[ve.idx[0]];
+			auto& arc1 = arcs[ve.idx[1]];
+	
+			// 8-1. get direction
+			auto dir00 = arc0.cc() - v0;
+			auto dir01 = arc1.cc() - v0;
+			auto dir10 = arc0.cc() - v1;
+			auto dir11 = arc1.cc() - v1;
+	
+			auto dist00 = dir00.length1();
+			auto dist01 = dir01.length1();
+			auto dist10 = dir10.length1();
+			auto dist11 = dir11.length1();
+	
+			// if (arc = concave) flip direction
+	
+			// This part is different from above case, as clearance = 0 can be erroneous for this case
+			//	0 < 0 may make errorneous results due to numerical errors.
+			if (dist00 < arc0.cr())
+				dir00 = -dir00;
+			if (dist10 < arc0.cr())
+				dir10 = -dir10;
+	
+			if (dist01 < arc1.cr())
+				dir01 = -dir01;
+			if (dist11 < arc1.cr())
+				dir11 = -dir11;
+	
+			// 8-2. find clearance
+			auto& clr0 = ve.clr0();
+			auto& clr1 = ve.clr1();
+			//clr0 = fabs(dist00 - arc0.cr());
+			//clr1 = fabs(dist11 - arc1.cr());
+	
+			// 8-3. find point on v-edge, which its clr is minClr
+			Point vNew;
+			{
+				// we know that one of the clearnace is below min and one is over min.
+				double t = (minClr - clr0) / (clr1 - clr0);
+				double t1 = 1 - t;
+	
+				// Assume: chage of clr is linear in small line seg
+				vNew = t1 * v0 + t * v1;
+			}
+	
+			// 8-4. normalize
+			dir00 = dir00 / dist00;
+			dir01 = dir01 / dist01;
+			dir10 = dir10 / dist10;
+			dir11 = dir11 / dist11;
+	
+			// 8-5. get vXY
+			auto v00 = v0 + (clr0 - offset) * dir00;
+			auto v01 = v0 + (clr0 - offset) * dir01;
+			auto v10 = v1 + (clr1 - offset) * dir10;
+			auto v11 = v1 + (clr1 - offset) * dir11;
+	
+			// 8-6. build offset crv
+			lseg off0;
+			lseg off1;
+			{
+				bool v0larger = clr0 > clr1;
+				
+				// changes with bool simple (iff simple, two points coincide as vNew)
+				if (simple)
+				{
+					bool v0larger = clr0 > clr1;
+					if (v0larger)
+					{
+						off0.v0 = v00;
+						off0.v1 = vNew;
+						off1.v0 = v01;
+						off1.v1 = vNew;
+					}
+					else
+					{
+						off0.v0 = vNew;
+						off0.v1 = v10;
+						off1.v0 = vNew;
+						off1.v1 = v11;
+					}
+				}
+				else
+				{
+					off0.v0 = v00;
+					off0.v1 = v10;
+					off1.v0 = v01;
+					off1.v1 = v11;
+				}
+	
+				// tag: clearance setting : off
+				off0.clr0() = offset;
+				off0.clr1() = offset;
+				off1.clr0() = offset;
+				off1.clr1() = offset;
+			}
+	
+			ret.push_back(off0);
+			ret.push_back(off1);
+	
+			/*
+			legacy stuff : probably not useable directly, as vNew may not be on offset crv ( as _in_min_clr's notion was added)
+	
+			// offset : changes with which vert has larger clr
+			bool v0larger = clr0 > clr1;
+	
+			offCso[sn].push_back(off0);
+			offCso[sn].push_back(off1);
+	
+			// conn
+			if (v0larger && (inserted.find(v0) != inserted.end()))
+			{
+				lseg con00;
+				con00.v0 = v0;
+				con00.v1 = v00;
+	
+				lseg con01;
+				con01.v0 = v0;
+				con01.v1 = v01;
+	
+				// tag: clearance setting : ocn
+				con00.clr0() = clr0;
+				con00.clr1() = minClr;
+				con01.clr0() = clr0;
+				con01.clr1() = minClr;
+	
+				offCon[sn].push_back(con00);
+				offCon[sn].push_back(con01);
+			}
+			if (!v0larger && (inserted.find(v1) != inserted.end()))
+			{
+				lseg con10;
+				con10.v0 = v1;
+				con10.v1 = v10;
+	
+				lseg con11;
+				con11.v0 = v1;
+				con11.v1 = v11;
+	
+				// tag: clearance setting : ocn
+				con10.clr0() = clr1;
+				con10.clr1() = minClr;
+				con11.clr0() = clr1;
+				con11.clr1() = minClr;
+	
+				offCon[sn].push_back(con10);
+				offCon[sn].push_back(con11);
+			}
+	
+			// insert those who are done
+			inserted.insert(v0);
+			inserted.insert(v1);
+	
+			*/
+		}
+		
+		//
+		return ret;
+	}
+	
+	/*
+	Def:
+		Given a set of circularArcs and a point p, find a point on cArcs that is closest to p.
+	Param:
+		p : p
+		model : set of circularArcs (need not be g0-cont)
+		closest : point to store result
+		dist: dist btw closest and p
+	Return:
+	*/
+	void findClosestPoint(Point & _in_p, vector<CircularArc> & _in_model, Point& _out_closest, double& _out_dist)
+	{
+		auto& p = _in_p;
+		auto& data = _in_model;
+		auto& closest = _out_closest;
+		auto& minDist = _out_dist;
+
+		// 1. find closest point in boundary
+		LOOP int closestArcIdx = -1;
+		LOOP minDist = 1e8;
+		LOOP int cpAtEnd; // 0 : not at endpoint // 1 : at x0 // 2 : at x1
+		{
+			// for (all arcs) update minDist
+			for (int i = 0; i < data.size(); i++)
+			{
+				// 1-1.Alias
+				auto& arc = data[i];
+				auto& cen = arc.c.c;
+				auto& rad = arc.c.r;
+
+				// 1-2. Check best case := point on arc with normal = (p-cen).normalize();
+				// minDist is bounded by : |dist(p, cen) - r| <= minDist <= |dist(p, cen) + r|
+				auto direction = p - cen;
+				double centerDist = sqrt(direction.length2());
+				direction = direction / centerDist;
+				double bestDist = fabs(centerDist - rad);
+
+				// 1-2-2. guard clause
+				if (bestDist > minDist)
+					continue;
+
+				bool bestCasePossible = planning::isNoramlBetweenArc(arc, direction);
+
+				// 1-3. if (bestCasePossible) {check dist btw bestCase} else arc's endpoint is better than any other point
+				if (bestCasePossible)
+				{
+					if (bestDist < minDist)
+					{
+						minDist = bestDist;
+						closestArcIdx = i;
+						closest = cen + rad * direction;
+						cpAtEnd = false;
+					}
+				}
+				else
+				{
+					// dist btw p and two end points
+					auto
+						d0 = sqrt((p - arc.x0()).length2()),
+						d1 = sqrt((p - arc.x1()).length2());
+
+					if (d0 < d1)
+					{
+						if (d0 < minDist)
+						{
+							minDist = d0;
+							closestArcIdx = i;
+							closest = arc.x0();
+							cpAtEnd = 1;
+						}
+					}
+					else
+					{
+						if (d1 < minDist)
+						{
+							minDist = d1;
+							closestArcIdx = i;
+							closest = arc.x1();
+							cpAtEnd = 2;
+						}
+					}
+				}
+
+			}
+		}
+	}
+} // end of namespace planning;

@@ -91,4 +91,10 @@ TODO LIST
 28. completely rework...
 
 29. arcPath rotation at start/end
+
+30. 
+	see bug_tan model
+	i. imp) lineTester failing
+	ii. imp) offset strange at 4 corners
+	iii. poor offset (maybe too small vor edge)
 */

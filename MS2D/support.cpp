@@ -1,3 +1,4 @@
+#include "GlobalHeader.hpp"
 #include "support.hpp"
 #include "MS2D.h"
 #include "omp.h"
@@ -20,6 +21,7 @@ Support::Support(CircularArc& arc)
 {
 	build(arc);
 }
+
 
 /*
 Def:
@@ -256,6 +258,23 @@ Def: calculate lineSegments that are common tangents of loop0 and loop1
 void 
 CommonTangentCalculator::calc()
 {
+	{
+		auto env0 = findEnvelope(*_loop0);
+		auto env1 = findEnvelope(*_loop1);
+	
+		auto ret0 = findCommonTangentCase0(env0, env1);
+		auto ret1 = findCommonTangentCase1(env0, env1);
+
+		auto& out = *_out;
+		out.swap(ret0);
+		out.insert(out.begin(), ret1.begin(), ret1.end());
+
+		return;
+	}
+
+	////////////////////////////////////////////////////
+	// legacy code below;
+
 	// 1.
 	vector<Sup>
 		sup0,
@@ -313,6 +332,175 @@ CommonTangentCalculator::calc()
 			_out->push_back(env2.point(t+PI));
 		}
 	}
+}
+
+/*
+Def: 
+	given a set of circular arcs, find upper envelope of their support
+Assume:
+	not necessarily g0 needed.
+*/
+SupportComplex 
+CommonTangentCalculator::findEnvelope(vector<CircularArc>& model)
+{
+	// 1. build support class instance
+	vector<Sup>
+		sup0;
+	{
+		for (auto& a : model)
+			sup0.emplace_back(a);
+	}
+
+	// 2. build SupCom class inst
+	vector<SupCom>
+		sc0;
+	{
+		for (auto& s : sup0)
+			sc0.emplace_back(s);
+	}
+
+	// 3. build env
+	SupCom
+		env0;
+	{
+		env0 = sc0[0];
+
+		for (int i = 1; i < sc0.size(); i++)
+			env0 = env0.upperEnvelope(sc0[i]);
+	}
+
+	// 4.
+	return env0;
+}
+
+/*
+Def:
+	given two envelopes (each from some loop/model), find common tangent sharing normal dir/value
+*/
+vector<Point>  
+CommonTangentCalculator::findCommonTangentCase0(SupportComplex& env0, SupportComplex& env1)
+{
+	vector<Point> ret;
+
+	// i. find intersection
+	auto inter = env0.intersection(env1);
+
+	// ii. evaluate corresponding pts.
+	{
+		for (auto t : inter)
+		{
+			ret.push_back(env0.point(t));
+			ret.push_back(env1.point(t));
+		}
+	}
+
+	// iii.
+	return ret;
+}
+
+/*
+Def:
+	given two envelopes (each from some loop/model), find common tangent with inverse normal dir/value
+*/
+vector<Point>  
+CommonTangentCalculator::findCommonTangentCase1(SupportComplex& env0, SupportComplex& env1)
+{
+	vector<Point> ret;
+	auto env2 = env1; // copy needed for eval
+	
+	// i. flip 
+	env1.flip();
+
+	// ii. find intersection
+	auto inter = env0.intersection(env1);
+
+	// iii. evaluate position
+	{
+		for (auto t : inter)
+		{
+			ret.push_back(env0.point(t));
+			ret.push_back(env2.point(t + PI));
+		}
+	}
+
+	// iv.
+	return ret;
+}
+
+
+/*
+Def:
+	given two envelopes (each from some loop/model),
+	given their offsetting value
+	find common tangent sharing normal dir/value between the offset-cvx-hull
+*/
+vector<Point> 
+CommonTangentCalculator::findCommonTangentCase0Offset(SupportComplex& env0, SupportComplex& env1, double offset0, double offset1)
+{
+	vector<Point> ret;
+
+	// i. offset support func
+	auto env2 = env0;
+	auto env3 = env1;
+
+	for (auto& r : env2.r())
+		r += offset0;
+	for (auto& r : env3.r())
+		r += offset1;
+
+	// i. find intersection
+	auto inter = env3.intersection(env2);
+
+	// ii. evaluate corresponding pts.
+	{
+		for (auto t : inter)
+		{
+			ret.push_back(env0.point(t) + offset0 * Point(cos(t), sin(t)));
+			ret.push_back(env1.point(t) + offset1 * Point(cos(t), sin(t)));
+		}
+	}
+
+	// iii.
+	return ret;
+}
+
+/*
+Def:
+	given two envelopes (each from some loop/model),
+	given their offsetting value
+	find common tangent sharing normal dir/value between the offset-cvx-hull
+*/
+vector<Point>
+CommonTangentCalculator::findCommonTangentCase1Offset(SupportComplex& env0, SupportComplex& env1, double offset0, double offset1)
+{
+	vector<Point> ret;
+
+	// i. offset support func
+	auto env2 = env0;
+	auto env3 = env1;
+
+	for (auto& r : env2.r())
+		r += offset0;
+	for (auto& r : env3.r())
+		r += offset1;
+
+	// i. flip
+	env3.flip();
+
+	// i. find intersection
+	auto inter = env3.intersection(env2);
+
+	// ii. evaluate corresponding pts.
+	{
+		for (auto t : inter)
+		{
+			ret.push_back(env0.point(t   ) + offset0 * Point(cos(t), sin(t)));
+			ret.push_back(env1.point(t+PI) - offset1 * Point(cos(t), sin(t)));
+		}
+	}
+
+	// iii.
+	return ret;
 }
 
 
@@ -1453,4 +1641,227 @@ Point SupportComplex::point(double t)
 		return arc.cc() + arc.cr() * Point(cos(t), sin(t));
 	}
 
+}
+
+/*
+Def:
+	given a line segment, check whether there is collision with offset-convex-hull
+Desc:
+	1. change the problem from (conv-hull VS line) to (convex-hull-translation-volume + point)
+Ret:
+	true iff collision
+*/
+bool SupportComplex::isCollisionOffset(double offset, Point& p, Point& q)
+{
+	// 1. get minus-trans 
+	auto mt = p - q; // -(q-p)
+
+	// 2. new SupCom
+	auto sc = *this;
+
+	{
+		// 2-1. offset
+		for (auto& r : sc.r())
+			r += offset;
+
+		// 2-2. make sweep volume
+		auto theta = atan2(mt.y(), mt.x());
+		auto theta0 = theta - PI_half;
+		auto theta1 = theta + PI_half;
+
+		if (theta0 < 0.0)
+		{
+			theta0 += PI2;
+			theta1 += PI2;
+		}
+
+		// at this point 0 < theta0 < theta1
+		// 2-3. see wheter theat1 < PI2;
+		bool cond0 = theta1 < PI2; // := single interval
+
+		// 2-4. change a/b value
+		if (cond0)
+		{
+			// 2-4-1. 0 < theta0 < theta1 < PI2
+			int idx0, idx1;
+
+			// i. insert theta0
+			for (int i = 1; i < sc.t().size(); i++)
+			{
+				// continue till right position
+				auto& t = sc.t()[i];
+				if (t <= theta0)
+					continue;
+				else // if(right position)
+				{
+					// find iter
+					auto it_t = sc.t()  .begin() + i;
+					auto it_a = sc.a()  .begin() + i;
+					auto it_b = sc.b()  .begin() + i;
+					auto it_r = sc.r()  .begin() + i;
+					auto it_p = sc.arc().begin() + i;
+
+					// do insertion
+					sc.t()  .insert(it_t, theta0);
+					sc.a()  .insert(it_a, sc.a()[i-1]);
+					sc.b()  .insert(it_b, sc.b()[i-1]);
+					sc.r()  .insert(it_r, sc.r()[i-1]);
+					sc.arc().insert(it_p, sc.arc()[i-1]);
+
+					idx0 = i;
+					break;
+				}
+			}
+
+			// ii. insert theta1
+			for (int i = 1; i < sc.t().size(); i++)
+			{
+				// continue till right position
+				auto& t = sc.t()[i];
+				if (t <= theta1)
+					continue;
+				else // if(right position)
+				{
+					// find iter
+					auto it_t = sc.t()  .begin() + i;
+					auto it_a = sc.a()  .begin() + i;
+					auto it_b = sc.b()  .begin() + i;
+					auto it_r = sc.r()  .begin() + i;
+					auto it_p = sc.arc().begin() + i;
+
+					// do insertion
+					sc.t()  .insert(it_t, theta1);
+					sc.a()  .insert(it_a, sc.a()[i-1]);
+					sc.b()  .insert(it_b, sc.b()[i-1]);
+					sc.r()  .insert(it_r, sc.r()[i-1]);
+					sc.arc().insert(it_p, sc.arc()[i-1]);
+
+					idx1 = i;
+					break;
+				}
+			}
+
+			// iii. change a/b
+			for (int i = idx0; i < idx1; i++)
+			{
+				sc.a()[i] += mt.x();
+				sc.b()[i] += mt.y();
+			}
+		}
+		else
+		{
+			// 2-4-2. 0 < theta0 < PI2 < theta1
+			// 0 < (theta1 - PI2) < theta0 < PI2
+			int idx0, idx1;
+
+			auto THETA0 = theta1 - PI2;
+			auto THETA1 = theta0;
+
+			// i. insert theta0
+			for (int i = 1; i < sc.t().size(); i++)
+			{
+				// continue till right position
+				auto& t = sc.t()[i];
+				if (t <= THETA0)
+					continue;
+				else // if(right position)
+				{
+					// find iter
+					auto it_t = sc.t()  .begin() + i;
+					auto it_a = sc.a()  .begin() + i;
+					auto it_b = sc.b()  .begin() + i;
+					auto it_r = sc.r()  .begin() + i;
+					auto it_p = sc.arc().begin() + i;
+
+					// do insertion
+					sc.t()  .insert(it_t, THETA0);
+					sc.a()  .insert(it_a, sc.a()[i-1]);
+					sc.b()  .insert(it_b, sc.b()[i-1]);
+					sc.r()  .insert(it_r, sc.r()[i-1]);
+					sc.arc().insert(it_p, sc.arc()[i-1]);
+
+					idx0 = i;
+					break;
+				}
+			}
+
+			// ii. insert theta1
+			for (int i = 1; i < sc.t().size(); i++)
+			{
+				// continue till right position
+				auto& t = sc.t()[i];
+				if (t <= THETA1)
+					continue;
+				else // if(right position)
+				{
+					// find iter
+					auto it_t = sc.t()  .begin() + i;
+					auto it_a = sc.a()  .begin() + i;
+					auto it_b = sc.b()  .begin() + i;
+					auto it_r = sc.r()  .begin() + i;
+					auto it_p = sc.arc().begin() + i;
+
+					// do insertion
+					sc.t()  .insert(it_t, THETA1);
+					sc.a()  .insert(it_a, sc.a()[i-1]);
+					sc.b()  .insert(it_b, sc.b()[i-1]);
+					sc.r()  .insert(it_r, sc.r()[i-1]);
+					sc.arc().insert(it_p, sc.arc()[i-1]);
+
+					idx1 = i;
+					break;
+				}
+			}
+
+			// iii. change a/b
+			for (int i = 0; i < idx0; i++)
+			{
+				sc.a()[i] += mt.x();
+				sc.b()[i] += mt.y();
+			}
+			for (int i = idx1; i < sc.a().size(); i++)
+			{
+				sc.a()[i] += mt.x();
+				sc.b()[i] += mt.y();
+			}
+		}
+
+		// building sc done
+
+	}
+
+	// 3. check pt is inside
+	return sc.isPointInside(p);
+}
+
+/*
+Def:
+	Check whether a point is in convex-hull described by this support;
+*/
+bool SupportComplex::isPointInside(Point& p)
+{
+	// 1. make support of p;
+	SupportComplex sc;
+	CircularArc temp;
+	{
+		temp.cc() = p;
+		temp.cr() = 1e-10; // HYPER::POINT_ARC_RADIUS;
+		temp.n0() = Point(1, 0);
+		temp.n1() = Point(0, 1);
+		temp.x0() = temp.cc() + temp.cr() * temp.n0();
+		temp.x1() = temp.cc() + temp.cr() * temp.n1();
+		temp.ccw  = true;
+
+		Support supTemp(temp);
+		sc.build(supTemp);
+	}
+
+	// 2. find intersection
+	auto inter = sc.intersection(*this);
+
+	// 3.
+	if (inter.size() == 0)
+		return true;
+	else
+		return false;
 }

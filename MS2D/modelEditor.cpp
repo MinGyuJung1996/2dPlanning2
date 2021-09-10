@@ -5,6 +5,8 @@
 #include "collision detection.hpp"
 #include "xyt-cs.hpp"
 #include "refine.hpp"
+#include "support.hpp"
+#include "dijkstra.hpp"
 
 #include <filesystem>
 #include <sstream>
@@ -14,6 +16,7 @@ namespace fs = std::experimental::filesystem; // may need to be changed, since i
 
 
 void arcAlignedPathSweepVolume(vector<CircularArc>& _in_path, vector<CircularArc>& _in_robot, vector<CircularArc>& _out);
+
 
 namespace modelEditor
 {
@@ -35,7 +38,14 @@ namespace modelEditor
 	double _h_line_rad = 100.0;
 	
 	// mode : may need to change to enum later
-	enum modes { modes_editing = 0, modes_cspace, modes_rsv };
+	enum modes 
+	{ 
+		modes_editing = 0, 
+		modes_cspace, 
+		modes_rsv, 
+		modes_tangent, 
+		enum_size 
+	};
 	modes pgMode = modes_editing;
 
 	// result, current edit
@@ -70,10 +80,19 @@ namespace modelEditor
 
 		string robotName;
 		double robotScale;
+
+		Point startGoal;
+		bool startGoalSet = false;
+		bool colorCase1 = false;
+		bool colorCase2 = false;
+		bool drawCircleCase1 = false;
+		bool drawCircleCase2 = false;
+		bool drawConnCase1 = false;
+		bool drawConnCase2 = false;
 	}
 
 
-	// manual
+	// nav manual
 	string manual =
 		R"del(
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Manual ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -121,10 +140,29 @@ n,m: scale  loop
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Mode 1 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ~~ show mink vor
-
+[: slice--
+]: slice++
+p: set goal/start
+q: toggle bool colorCase1
+w: toggle bool colorCase2
+a: toggle bool drawCircleCase1
+s: toggle bool drawCircleCase2
+z: toggle bool drawConnCase1
+x: toggle bool drawConnCase2
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Mode 2 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ~~ show rsv (path = currently drawing arcs)
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Mode 3 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~ test tangent result
+q: show tangent(point, model)
+w: show tangent(model, model)
+e: show offset
+e+ [: offset++
+e+ ]: offset--
+e+ {: offset_min_clr++
+e+ }: offset_min_clr--
+e+ v: show vor
 )del";
 
 	/*
@@ -681,22 +719,26 @@ n,m: scale  loop
 		// 0-1. check change of mode
 		if (Key3('~'))
 		{
-			switch (pgMode)
-			{
-			default:
-			case modes::modes_editing:
-				mode1::obsSet = false;
-				pgMode = modes::modes_cspace;
-				break;
-			case modes::modes_cspace:
-				pgMode = modes::modes_rsv;
-				break;
-			case modes::modes_rsv:
-				pgMode = modes::modes_editing;
-				break;
-			}
+			pgMode = static_cast<modes>((pgMode + 1) % modes::enum_size);
+			cout << "Current Mode: " << pgMode << endl;
+
+			//switch (pgMode)
+			//{
+			//default:
+			//case modes::modes_editing:
+			//	mode1::obsSet = false;
+			//	pgMode = modes::modes_cspace;
+			//	break;
+			//case modes::modes_cspace:
+			//	pgMode = modes::modes_rsv;
+			//	break;
+			//case modes::modes_rsv:
+			//	pgMode = modes::modes_editing;
+			//	break;
+			//}
 		}
 
+		// nav disp
 		if (pgMode == modes_editing)
 		{
 		if(Key('2'))
@@ -1445,7 +1487,28 @@ n,m: scale  loop
 		}
 		else if (pgMode == modes_cspace)
 		{
+			// nav mode1
+
 			using namespace mode1;
+
+			// debug
+			if (Key('!'))
+			{
+				glMatrixMode(GL_PROJECTION);
+				glLoadIdentity();
+				double l = 1.1;
+				gluOrtho2D(-l, l, -l, l);
+
+			}
+			else
+			{
+				glMatrixMode(GL_PROJECTION);
+				glLoadIdentity();
+			}
+			
+			//debug
+			mode1::obsSet = false;
+			
 			// 0. take care of first call
 			if (mode1::robotSet == false)
 			{
@@ -1466,10 +1529,10 @@ n,m: scale  loop
 				Point p2(-1, 1);
 				Point p3(-1, -1);
 
-				auto a0 = cd::constructArc(p0, p1, 10, true, true);
-				auto a1 = cd::constructArc(p1, p2, 10, true, true);
-				auto a2 = cd::constructArc(p2, p3, 10, true, true);
-				auto a3 = cd::constructArc(p3, p0, 10, true, true);
+				auto a0 = cd::constructArc(p0, p1, 100, true, true);
+				auto a1 = cd::constructArc(p1, p2, 100, true, true);
+				auto a2 = cd::constructArc(p2, p3, 100, true, true);
+				auto a3 = cd::constructArc(p3, p0, 100, true, true);
 
 				planning::voronoiBoundary.push_back(a0);
 				planning::voronoiBoundary.push_back(a1);
@@ -1495,8 +1558,11 @@ n,m: scale  loop
 			}
 
 			// 2. draw mink vor
+			int vType = 1;
+			planning::VR_IN vrin;
+			vector<deque<VoronoiEdge>> v_res;
 			{
-				// 2-1.
+				// 2-1. Mink
 				ms::t2 = sliceNo;
 				ms::minkowskisum(ms::t2, 7);
 				
@@ -1507,35 +1573,490 @@ n,m: scale  loop
 							arc.draw();
 				
 				// 2-2. Vor
-				planning::VR_IN vrin;
 				planning::_Convert_MsOut_To_VrIn(ms::Model_Result, ms::ModelInfo_Boundary, vrin);
-				
+
+				if (Key('!'))
+				{
+					//debug
+					cout << COUT(vrin.arcs.back().x0()) << endl;
+					glColor3f(0, 0, 0);
+					for (int i = 0; i < vrin.arcs.size(); i++)
+					{
+						if (vrin.color[i] == 1.0)
+						{
+							vrin.arcs[i].draw2();
+						}
+					}
+				}
 				voronoiCalculator vc;
 				vc.initialize();
 				vc.setInput(vrin.arcs, vrin.left, vrin.color);
 
 				glColor3f(0, 0, 1);
-				int vType = 1;
 				if (vType == 1)
 				{
-					vector<deque<VoronoiEdge>> v_res;
 					vc.setOutput(v_res);
+					planning::_h_fmdsp_g1 = 1e-2;
 					vc.calculate();
+					planning::_h_fmdsp_g1 = 1e-8;
 
-					glBegin(GL_LINES);
-					for (auto& a : v_res)
-						for (auto& b : a)
-						{
-							glVertex2dv(b.v0.P);
-							glVertex2dv(b.v1.P);
-						}
-					glEnd();
+					// if(not startGoal point is set) just draw it here
+					// else draw it below
+					if (!startGoalSet)
+					{
+						glBegin(GL_LINES);
+						for (auto& a : v_res)
+							for (auto& b : a)
+							{
+								glVertex2dv(b.v0.P);
+								glVertex2dv(b.v1.P);
+							}
+						glEnd();
+					}
 					//cout << COUT(v_res.size()) << endl;
 					//cout << COUT(vrin.arcs.size()) << endl;
 				}
 			}
 
 			// 3. change robot
+			{
+
+			}
+
+			// 4. start/goal visualization
+			{
+				if (Key3('p'))
+				{
+					if (mode1::startGoalSet)
+						startGoalSet = false;
+					else
+					{
+						startGoalSet = true;
+						startGoal = mousePosition;
+						cout << "startGoal = " << startGoal << endl;
+					}
+				}
+
+				if (startGoalSet)
+				{
+
+					// 4-1. find clr of startGoal
+					Point closest;
+					double pClr, pClr2;
+					{
+						planning::findClosestPoint(startGoal, vrin.arcs, closest, pClr);
+						pClr2 = pClr * pClr;
+					}
+					// 4-2. find Clr of vor
+					vector<VoronoiEdge> ves;
+					{
+						// build ves
+						for(auto& vs: v_res)
+							for (auto& v : vs)
+							{
+								ves.push_back(v);
+							}
+					}
+					planning::setClearance(ves, vrin.arcs);
+
+					// 4-3. flags/points for each ve 
+					vector<bool> case1(ves.size(), false);
+					vector<bool> case2(ves.size(), false);
+					vector<Point> ep1, ep2;
+					for (int i = 0; i < ves.size(); i++)
+					{
+						auto& ve = ves[i];
+						auto& flag1 = case1[i];
+						auto& flag2 = case2[i];
+						
+						auto& p = startGoal;
+						auto& v0 = ve.v0;
+						auto& v1 = ve.v1;
+
+						auto d0 = (p - v0).length2();
+						auto d1 = (p - v1).length2();
+						// 4-3-1. check ve case 1
+						{
+							if (d0 < pClr2 && d1 < pClr2)
+							{
+								flag1 = true;
+								ep1.push_back(v0);
+								ep1.push_back(v1);
+							}
+						}
+
+						// 4-3-2. check ve case 2
+						{
+							if (sqrt(d0) < ve.clr0() && sqrt(d1) < ve.clr1())
+							{
+								flag2 = true;
+								ep2.push_back(v0);
+								ep2.push_back(v1);
+							}
+						}
+					}
+
+					// 4-4. draw circles
+					vector<Circle> pDrawLater;
+					{
+						if (drawCircleCase1)
+						{
+							Circle c;
+							c.c = startGoal;
+							c.r = pClr;
+
+							CircularArc ca = cd::constructArc(c.c, c.r, 0.0, PI2 - 1e-8);
+							
+
+							glColor3f(1.0, 0.8, 0.8);
+							c.draw(-0.5);
+							glColor3f(0.5, 0.5, 0.5);
+							ca.draw2();
+
+						}
+
+						if (drawCircleCase2)
+						{
+							// fill circle
+							for (int i = 0; i < ves.size(); i++)
+							{
+								if (case2[i])
+								{
+									auto& ve = ves[i];
+
+									Circle c0, c1;
+									c0.c = ve.v0;
+									c0.r = ve.clr0();
+									c1.c = ve.v1;
+									c1.r = ve.clr1();
+
+									glColor3f(0.9, 1.0, 0.9);
+									c0.draw(0.5);
+									c1.draw(0.5);
+								}
+							}
+							// circle boundary
+
+							if (Key('f'))
+							{
+								int option = 2;
+								if (option == 0)
+								{
+									for (int i = 0; i < ves.size(); i++)
+									{
+										if (case2[i])
+										{
+											auto& ve = ves[i];
+
+											CircularArc
+												ca0 = cd::constructArc(ve.v0, ve.clr0(), 0.0, PI2 - 1e-8),
+												ca1 = cd::constructArc(ve.v1, ve.clr1(), 0.0, PI2 - 1e-8);
+
+											glColor3f(0.5, .5, .5);
+											ca0.draw2();
+											ca1.draw2();
+
+										}
+									}
+								}
+								else if (option == 1)
+								{
+									// first build circle boundary to draw
+									vector<int> drawBoundaryCircle(ves.size(), false);
+									vector<int> drawBoundaryCircle2(ves.size(), false);
+									{
+										// draw left/right/top/bottom-most circle center;
+										double
+											xmax = -1e8,
+											xmin = +1e8,
+											ymax = -1e8,
+											ymin = +1e8;
+										int
+											xxi = 0, xxi2 = 0, // idx of ve // idx 0 or 1
+											xni = 0, xni2 = 0, // idx of ve // idx 0 or 1
+											yxi = 0, yxi2 = 0, // idx of ve // idx 0 or 1
+											yni = 0, yni2 = 0; // idx of ve // idx 0 or 1
+
+										// for (all ve)
+										for (int i = 0; i < ves.size(); i++)
+										{
+											if (case2[i])
+											{
+												{
+													auto& p = ves[i].v0;
+													int idx = 0;
+													double clr = ves[i].clr0();
+
+													if (p.x() - clr < xmin)
+													{
+														xmin = p.x() - clr;
+														xni = i;
+														xni2 = idx;
+													}
+													if (p.x() + clr > xmax)
+													{
+														xmax = p.x() + clr;
+														xxi = i;
+														xxi2 = idx;
+													}
+													if (p.y() - clr < ymin)
+													{
+														ymin = p.y() - clr;
+														yni = i;
+														yni2 = idx;
+													}
+													if (p.y() + clr > ymax)
+													{
+														ymax = p.y() + clr;
+														yxi = i;
+														yxi2 = idx;
+													}
+												}
+												{
+													auto& p = ves[i].v1;
+													int idx = 1;
+													double clr = ves[i].clr1();
+
+													if (p.x() - clr < xmin)
+													{
+														xmin = p.x() - clr;
+														xni = i;
+														xni2 = idx;
+													}
+													if (p.x() + clr > xmax)
+													{
+														xmax = p.x() + clr;
+														xxi = i;
+														xxi2 = idx;
+													}
+													if (p.y() - clr < ymin)
+													{
+														ymin = p.y() - clr;
+														yni = i;
+														yni2 = idx;
+													}
+													if (p.y() + clr > ymax)
+													{
+														ymax = p.y() + clr;
+														yxi = i;
+														yxi2 = idx;
+													}
+												}
+											}
+										}
+
+										// set best
+										drawBoundaryCircle[xxi] = true;
+										drawBoundaryCircle2[xxi] = xxi2;
+										drawBoundaryCircle[xni] = true;
+										drawBoundaryCircle2[xni] = xni2;
+										drawBoundaryCircle[yxi] = true;
+										drawBoundaryCircle2[yxi] = yxi2;
+										drawBoundaryCircle[yni] = true;
+										drawBoundaryCircle2[yni] = yni2;
+									}
+
+									if (false)
+										for (int i = 0; i < ves.size(); i++)
+										{
+											if (case2[i] && drawBoundaryCircle[i])
+											{
+												auto& ve = ves[i];
+
+												CircularArc
+													ca0 = cd::constructArc(ve.v0, ve.clr0(), 0.0, PI2 - 1e-8),
+													ca1 = cd::constructArc(ve.v1, ve.clr1(), 0.0, PI2 - 1e-8);
+
+												glColor3f(0.5, .5, .5);
+												if (drawBoundaryCircle2[i])
+													ca0.draw2();
+												else
+													ca1.draw2();
+											}
+										}
+								}
+								else if (option == 2)
+								{
+									// i. find points with single edge
+									map<Point, int, graphSearch::PointCompare> count;
+									map<Point, double, graphSearch::PointCompare> rad;
+
+									for (int i = 0; i < ves.size(); i++)
+									{
+										if (!case2[i])
+											continue;
+										auto& ve = ves[i];
+
+										{
+											auto& p = ve.v0;
+											auto& r = ve.clr0();
+
+											auto it = count.find(p);
+											if (it == count.end())
+											{
+												count[p] = 1;
+												rad[p] = r;
+											}
+											else
+											{
+												it->second++;
+											}
+										}
+										{
+											auto& p = ve.v1;
+											auto& r = ve.clr1();
+
+											auto it = count.find(p);
+											if (it == count.end())
+											{
+												count[p] = 1;
+												rad[p] = r;
+											}
+											else
+											{
+												it->second++;
+											}
+										}
+									}
+
+									auto itc = count.begin();
+									auto itr = rad.begin();
+
+									// ii. draw
+									while (itc != count.end())
+									{
+										if (itc->second < 2)
+										{
+											glColor3f(.5, .5, .5);
+											Point temp = itr->first;
+											CircularArc
+												ca0 = cd::constructArc(temp, itr->second, 0.0, PI2 - 1e-8);
+											ca0.draw2();
+
+											//glColor3f(0, 1, 0);
+											Circle c(temp, 0.01);
+											pDrawLater.push_back(c);
+											//c.draw();
+										}
+
+										itc++;
+										itr++;
+									}
+								}
+							}
+						}
+					}
+
+					// 4-5. draw VoronoiEdges
+					{
+						for (int i = 0; i < ves.size(); i++)
+						{
+							// i. find flags
+							bool flag1 = false, flag2 = false;
+							if (case1[i] && mode1::colorCase1)
+								flag1 = true;
+							if (case2[i] && mode1::colorCase2)
+								flag2 = true;
+							
+							// ii. find color
+							int cType = 0;
+							cType += 2 * int(flag2);
+							cType += 1 * int(flag1);
+							switch (cType)
+							{
+							case 3:
+								glColor3f(1, 1, 0);
+								break;
+							case 2:
+								glColor3f(0, 1, 0);
+								break;
+							case 1:
+								glColor3f(1, 0, 0);
+								break;
+							case 0:
+							default:
+								glColor3f(0, 0, 1);
+								break;
+							}
+
+							// iii. draw
+							glBegin(GL_LINES);
+							glVertex2dv(ves[i].v0.P);
+							glVertex2dv(ves[i].v1.P);
+							glEnd();
+						}
+					}
+
+					// 4-6. draw connecting edges.
+					{
+						if (drawConnCase1)
+						{
+							glColor3f(0, 0, 0);
+							glBegin(GL_LINES);
+							for (auto& p : ep1)
+							{
+								glVertex2dv(p.P);
+								glVertex2dv(startGoal.P);
+							}
+							glEnd();
+						}
+						if (drawConnCase2)
+						{
+							glColor3f(0, 0, 0);
+							glBegin(GL_LINES);
+							for (auto& p : ep2)
+							{
+								glVertex2dv(p.P);
+								glVertex2dv(startGoal.P);
+							}
+							glEnd();
+						}
+					}
+
+					// 4-7. draw original point
+					{
+						Circle c;
+						c.c = startGoal;
+						c.r = 0.01;
+
+						glColor3f(0, 0, 0);
+						c.draw();
+					}
+
+					// 4-8. draw other points
+					{
+						glColor3f(0, 1, 0);
+						for (auto c : pDrawLater)
+							c.draw();
+					}
+
+					// 4-10. redraw mink
+					{
+						glColor3f(0, 0, 0);
+						for (auto& a : ms::Model_Result)
+							for (auto& as : a)
+								for (auto& arc : as.Arcs)
+									arc.draw();
+					}
+
+					// 4-99. input handling
+					{
+						if (Key3('q'))
+							mode1::colorCase1 = !mode1::colorCase1;
+						if (Key3('w'))
+							mode1::colorCase2 = !mode1::colorCase2;
+						if (Key3('a'))
+							mode1::drawCircleCase1 = !mode1::drawCircleCase1;
+						if (Key3('s'))
+							mode1::drawCircleCase2 = !mode1::drawCircleCase2;
+						if (Key3('z'))
+							mode1::drawConnCase1 = !mode1::drawConnCase1;
+						if (Key3('x'))
+							mode1::drawConnCase2 = !mode1::drawConnCase2;
+					}
+				}
+			}
+
 		}
 		else if (pgMode == modes_rsv)
 		{
@@ -1625,6 +2146,348 @@ n,m: scale  loop
 
 				}
 
+			}
+
+		}
+		else if (pgMode == modes_tangent)
+		{
+			// 0.
+			constexpr double offRes = 0.01;
+			static double offVal = offRes;
+			static double offMin = offRes;
+
+			planning::VR_IN vrin;
+			{
+				// i. vrin models
+				int offset = 0;
+				for (auto& v : models_arcs)
+				{
+					// models_arcs is ccw => convert cw
+					for (int i = 0; i < v.size(); i++)
+					{
+						int in = i + 1;
+						if (in == v.size())
+							in = 0;
+
+						vrin.arcs.push_back(planning::flipArc(v[i]));
+						vrin.left.push_back(in + offset);
+						vrin.color.push_back(0.0);
+					}
+
+					offset += v.size();
+				}
+
+				// ii. vrin boundary
+				{
+					Point p0(1, -1);
+					Point p1(1, 1);
+					Point p2(-1, 1);
+					Point p3(-1, -1);
+
+					auto a0 = cd::constructArc(p0, p1, 10, true, true);
+					auto a1 = cd::constructArc(p1, p2, 10, true, true);
+					auto a2 = cd::constructArc(p2, p3, 10, true, true);
+					auto a3 = cd::constructArc(p3, p0, 10, true, true);
+
+					vrin.arcs.push_back(a0);
+					vrin.arcs.push_back(a1);
+					vrin.arcs.push_back(a2);
+					vrin.arcs.push_back(a3);
+
+					vrin.left.push_back(offset + 3);
+					vrin.left.push_back(offset + 0);
+					vrin.left.push_back(offset + 1);
+					vrin.left.push_back(offset + 2);
+
+					vrin.color.push_back(1.0);
+					vrin.color.push_back(1.0);
+					vrin.color.push_back(1.0);
+					vrin.color.push_back(1.0);
+				}
+			}
+
+			cd::lineSegmentCollisionTester tester;
+			tester.initialize(vrin);
+
+			// draw models
+			// 1. show added models
+			{
+				glColor3f(0, 0, 0);
+				for (auto& l : models_arcs)
+				{
+					for (auto& a : l)
+						a.draw2();
+				}
+			}
+
+			// 2. show mousePosition (& align pts)
+			Circle c;
+			{
+				glColor3f(1, 0, 0);
+
+				c.c = mousePosition;
+				c.r = 0.01;
+				c.draw();
+			}
+
+			// 3. tangent of points
+			if(!Key('q'))
+			{
+				if (!Key('e'))
+				{
+					// lambda
+					auto getTangentOfPoint = [](Point& p, vector<CircularArc>& model)
+					{
+						// i. dummy arc
+						CircularArc dummyArc;
+						dummyArc.cc() = p;
+						dummyArc.cr() = 1e-10;
+						dummyArc.ccw  = true;
+						dummyArc.n0() = Point(1, 0);
+						dummyArc.n1() = Point(0, 1);
+						dummyArc.x0() = dummyArc.cc() + dummyArc.cr() * dummyArc.n0();
+						dummyArc.x1() = dummyArc.cc() + dummyArc.cr() * dummyArc.n1();
+
+						// ii. manually build supComp -> since dummy arc with rad=0 has no theat info
+						// later, for now use r = 1e-10;
+
+						// iii. use comTanCalc
+						ComTanCalc ctc;
+
+						vector<CircularArc>  loop0;
+						loop0.push_back(dummyArc);
+
+						vector<CircularArc>& loop1 = model;
+
+						vector<Point> ctcOut;
+
+						ctc.setInput0(loop0);
+						ctc.setInput1(loop1);
+						ctc.setOutput(ctcOut);
+						ctc.calc();
+
+						return ctcOut;
+					};
+
+					// draw
+					for (auto& temp : models_arcs)
+					{
+						// find
+						auto pts = getTangentOfPoint(mousePosition, temp);
+
+						// draw
+						glBegin(GL_LINES);
+						for (int i = 0; i < pts.size(); i += 2)
+						{
+							auto col = tester.test(pts[i], pts[i + 1]);
+							if (!col)
+							{
+								glVertex2dv(pts[i  ].P);
+								glVertex2dv(pts[i+1].P);
+							}
+						}
+						glEnd();
+					}
+				}
+				else // key('e')
+				{
+					// lambda
+					auto getTangentOfPointWithOffset = [](Point& p, vector<CircularArc>& model, double offset)
+					{
+						// i. dummy arc
+						CircularArc dummyArc;
+						dummyArc.cc() = p;
+						dummyArc.cr() = 1e-10;
+						dummyArc.ccw = true;
+						dummyArc.n0() = Point(1, 0);
+						dummyArc.n1() = Point(0, 1);
+						dummyArc.x0() = dummyArc.cc() + dummyArc.cr() * dummyArc.n0();
+						dummyArc.x1() = dummyArc.cc() + dummyArc.cr() * dummyArc.n1();
+
+						// ii. loops
+						vector<CircularArc>  loop0;
+						loop0.push_back(dummyArc);
+
+						vector<CircularArc>& loop1 = model;
+
+						// iii.
+						ComTanCalc ctc;
+						auto env0 = ctc.findEnvelope(loop0);
+						auto env1 = ctc.findEnvelope(loop1);
+						vector<Point> ctcOut = ctc.findCommonTangentCase0Offset(env0, env1, 0, offset);
+
+						//vector<Point> cdPassed;
+						//{
+						//	for (int i = 0; i < ctcOut.size(); i += 2)
+						//	{
+						//		auto& p = ctcOut[i];
+						//		auto& q = ctcOut[i+1];
+						//		if (env1.isCollisionOffset(offset * 0.95, p, q))
+						//		{
+						//
+						//		}
+						//		else
+						//		{
+						//			cdPassed.push_back(p);
+						//			cdPassed.push_back(q);
+						//		}
+						//	}
+						//
+						//	return cdPassed;
+						//}
+
+						return ctcOut;
+					};
+
+					// env for col test
+					vector<SupportComplex> envs;
+					for (auto& model : models_arcs)
+					{
+						CommonTangentCalculator ctc;
+						envs.push_back(ctc.findEnvelope(model));
+					}
+
+					//draw
+					for (auto& temp : models_arcs)
+					{
+						// find
+						auto pts = getTangentOfPointWithOffset(mousePosition, temp, offVal);
+
+						// draw
+						glBegin(GL_LINES);
+						for (int i = 0; i < pts.size(); i += 2)
+						{
+							//auto col = tester.test(pts[i], pts[i + 1]);
+							//auto col = tester.test(pts[i], pts[i + 1]);
+							bool col = false;
+							for (auto& env : envs)
+							{
+								if (env.isCollisionOffset(offVal * 0.99, pts[i], pts[i + 1]))
+								{
+									col = true;
+									break;
+								}
+							}
+							if (!col)
+							{
+								glVertex2dv(pts[i].P);
+								glVertex2dv(pts[i + 1].P);
+							}
+						}
+						glEnd();
+					}
+				}
+			}
+
+			// 4. tan btw models
+			if (!Key('w'))
+			{
+				if (!Key('e'))
+				{
+					glColor3f(0, 0, 1);
+					for (int i = 0; i < models_arcs.size(); i++)
+						for (int j = i + 1; j < models_arcs.size(); j++)
+						{
+							ComTanCalc ctc;
+							vector<Point> ctcOut;
+
+							ctc.setInput0(models_arcs[i]);
+							ctc.setInput1(models_arcs[j]);
+							ctc.setOutput(ctcOut);
+							ctc.calc();
+
+
+							glBegin(GL_LINES);
+							for (auto& p : ctcOut)
+								glVertex2dv(p.P);
+							glEnd();
+						}
+				}
+				else
+				{
+					glColor3f(0, 0, 1);
+					for (int i = 0; i < models_arcs.size(); i++)
+						for (int j = i + 1; j < models_arcs.size(); j++)
+						{
+							//
+							ComTanCalc ctc;
+							vector<Point> ctcOut;
+
+							// env
+							auto env0 = ctc.findEnvelope(models_arcs[i]);
+							auto env1 = ctc.findEnvelope(models_arcs[j]);
+
+							// case0 / acse 1
+							ctcOut = ctc.findCommonTangentCase0Offset(env0, env1, offVal, offVal);
+							auto ctcOut2 = ctc.findCommonTangentCase1Offset(env0, env1, offVal, offVal);
+							ctcOut.insert(ctcOut.end(), ctcOut2.begin(), ctcOut2.end());
+
+							glBegin(GL_LINES);
+							for (auto& p : ctcOut)
+								glVertex2dv(p.P);
+							glEnd();
+						}
+				}
+			}
+
+			// 5. offset
+			if (Key('e') && models_arcs.size() > 0)
+			{
+
+				// iii. do vor
+				voronoiCalculator vc;
+				vector<deque<VoronoiEdge>> res;
+
+				vc.setInput(vrin.arcs, vrin.left, vrin.color);
+				vc.setOutput(res);
+				vc.calculate();
+
+				// iv. draw vor
+				if (Key('v'))
+				{
+					glColor3f(0.5, 0, 0.5);
+					glBegin(GL_LINES);
+					for (auto& deq : res)
+						for (auto& ve : deq)
+						{
+							glVertex2dv(ve.v0.P);
+							glVertex2dv(ve.v1.P);
+						}
+					glEnd();
+				}
+
+				// v. get offset;
+				{
+					// v-i. mash it
+					vector<VoronoiEdge> temp;
+					for (auto& deq : res)
+						for (auto& ve : deq)
+						{
+							temp.push_back(ve);
+						}
+
+					// v-ii. clr
+					planning::setClearance(temp, vrin.arcs);
+
+					// v-iii. get offset crv
+					auto offCrv = planning::findOffsetCurve(temp, vrin.arcs, offVal, offMin);
+
+					// v-iv. draw
+					glColor3f(0.0, 0.8, 0.2);
+					glBegin(GL_LINES);
+					for (auto& oc : offCrv)
+					{
+						glVertex2dv(oc.v0.P);
+						glVertex2dv(oc.v1.P);
+					}
+					glEnd();
+				}
+
+				// xx. do input handeling
+				if (Key3('[')) { offVal -= offRes; if (offVal < offRes) offVal = offRes; }
+				if (Key3(']')) { offVal += offRes; }
+				if (Key3('{')) { offMin -= offRes; if (offMin < offRes) offMin = offRes; }
+				if (Key3('}')) { offMin += offRes; }
 			}
 
 		}

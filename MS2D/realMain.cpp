@@ -6,6 +6,8 @@
 #include "support.hpp"
 #include "dijkstra.hpp"
 #include "distance field.hpp"
+#include "GlobalHeader.hpp"
+
 using namespace std;
 extern double vbRad;
 
@@ -221,6 +223,9 @@ int main(int argc, char *argv[]) {
 
 	// nav real
 
+	cout << _h_tester << endl;
+	cout << HYPER::POINT_ARC_RADIUS << endl;
+
 	modelEditor::main(argc, argv);	// make model/scene with mouse
 	//sceneEditor::main(argc, argv);	// interactive editing of scene
 	//rendering3D::main3::main3(argc, argv);	// draw 3d c-space
@@ -280,7 +285,7 @@ namespace graphSearch
 	*/
 	int main2(int argc, char* argv[])
 	{
-		
+		cout << _h_tester << endl;
 
 
 		//minor stuffs with model

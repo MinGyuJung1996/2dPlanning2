@@ -304,6 +304,8 @@ namespace ms {
 			else
 				return false;
 		}
+		void draw(double z);
+
 
 	public:
 		/*! \brief 원의 중심좌표 */

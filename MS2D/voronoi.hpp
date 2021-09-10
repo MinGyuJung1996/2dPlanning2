@@ -446,3 +446,15 @@ public:
 inline bool& Key(char c) { return planning::keyboardflag[c]; }
 inline bool& Key2(char c) { return planning::keyboardflag_last[c]; }
 inline bool Key3(char c) { return planning::keyboardflag[c] != planning::keyboardflag_last[c]; }
+
+namespace planning
+{
+	using v_edge = planning::output_to_file::v_edge;
+	using lseg   = planning::output_to_file::v_edge;
+
+	vector<v_edge> findOffsetCurve(vector<VoronoiEdge>& _in_Voronoi, vector<CircularArc>& _in_arcs, double _in_offset, double _in_min_clearance);
+	void setClearance(vector<VoronoiEdge>& _in_voronoi, vector<CircularArc>& _in_arcs);
+	void findClosestPoint(ms::Point& _in_p, vector<CircularArc>& _in_model, ms::Point& _out_closest, double& _out_dist);
+
+}
+
